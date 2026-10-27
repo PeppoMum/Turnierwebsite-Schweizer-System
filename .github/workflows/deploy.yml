@@ -27,14 +27,16 @@ jobs:
       - run: npm run build
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
-          # Repository-Variable VITE_DATA_SOURCE=firebase schaltet die Seite auf echte Datenhaltung um.
-          VITE_DATA_SOURCE: ${{ vars.VITE_DATA_SOURCE || 'mock' }}
-          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
-          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          # Echte Datenhaltung im Firebase-Projekt turnierwebsite-swiss-system (Webkonfiguration ist kein Geheimnis,
+          # der Schutz kommt aus firestore.rules). Repository-Variablen gleichen Namens überschreiben die Werte;
+          # VITE_DATA_SOURCE=mock schaltet zurück auf Beispieldaten.
+          VITE_DATA_SOURCE: ${{ vars.VITE_DATA_SOURCE || 'firebase' }}
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY || 'AIzaSyD5AYhlprkLCGcTeYtOVEk0dxJo_4SBT3A' }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN || 'turnierwebsite-swiss-system.firebaseapp.com' }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID || 'turnierwebsite-swiss-system' }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET || 'turnierwebsite-swiss-system.firebasestorage.app' }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID || '513790803137' }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID || '1:513790803137:web:0eccb302986ad960f96840' }}
           VITE_USE_FIREBASE_EMULATOR: 'false'
       # SPA-Fallback: Deep Links landen auf 404.html und laden dieselbe App (Routing über den Hash).
       - run: cp dist/index.html dist/404.html

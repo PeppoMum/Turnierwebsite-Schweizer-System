@@ -136,9 +136,9 @@ npm run test:rules             # Regel- und Integrationstests (startet den Emula
 4. **Projekteinstellungen → Allgemein → Deine Apps → Web-App hinzufügen** (`</>`). Die angezeigten
    Werte (`apiKey`, `authDomain`, `projectId`, `storageBucket`, `messagingSenderId`, `appId`) eintragen:
    - lokal in `.env.local` (Vorlage `.env.example`), dazu `VITE_USE_FIREBASE_EMULATOR=false`,
-   - für GitHub Pages im Repository unter *Settings → Secrets and variables → Actions → Variables*
-     als `VITE_FIREBASE_API_KEY` usw., dazu `VITE_DATA_SOURCE=firebase`. Danach unter *Actions → Deploy GitHub
-     Pages → Run workflow* neu veröffentlichen.
+   - für GitHub Pages stehen die Werte des Projekts `turnierwebsite-swiss-system` direkt in
+     `.github/workflows/deploy.yml` (dazu `VITE_DATA_SOURCE=firebase`). Repository-Variablen gleichen Namens
+     (*Settings → Secrets and variables → Actions → Variables*) überschreiben sie.
    Diese Werte sind keine Geheimnisse; der Schutz kommt aus den Regeln.
 5. Regeln hochladen: entweder in der Konsole unter *Firestore → Regeln* den Inhalt von `firestore.rules`
    einfügen und *Veröffentlichen*, oder per CLI (lädt zusätzlich die Index-Ausnahmen hoch):

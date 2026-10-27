@@ -2,6 +2,7 @@
 // Aufbau und Sicherheitsmodell: firebase/README.md.
 export * from './assets';
 export * from './audit';
+export * from './auth';
 export * from './errors';
 export * from './firebase';
 export * from './invitations';

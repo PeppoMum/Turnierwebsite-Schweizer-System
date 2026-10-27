@@ -1,0 +1,88 @@
+/* Farbrollen und Maße nach Phils Style Guide. Im ganzen Projekt nur diese Rollen verwenden, keine Farbwerte direkt. */
+:root {
+  /* Akzent: Kobaltblau, fest für alle Turniere */
+  --ac: #004aad;
+  --acs: #e6eefa;
+  --ac-dark: #2b74e0;
+  --segon: #004aad;
+  --onac: #ffffff;
+
+  --bg: #f2f5fa;
+  --card: #ffffff;
+  --soft: #eef1f7;
+  --ln: #dde3ee;
+  --tx: #000000;
+  --mu: #596273;
+
+  --g: #22a06b;
+  --gs: #d8f3e6;
+  --y: #d9a400;
+  --ys: #fbf0c6;
+  --o: #e07b1a;
+  --os: #fbe6cf;
+  --r: #ff3131;
+  --rs: #ffecec;
+
+  --nav: #000000;
+  --navtx: #c9ceda;
+  --scrim: rgba(0, 0, 0, 0.45);
+
+  --font: 'Inter', 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --ctl: 36px;
+  --ctl-s: 28px;
+  --r-ctl: 10px;
+  --r-card: 14px;
+  --r-chip: 7px;
+
+  --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23596273' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #000000;
+    --card: #101114;
+    --soft: #1a1c21;
+    --ln: #26282e;
+    --tx: #ffffff;
+    --mu: #9ba3b2;
+    --ac: var(--ac-dark);
+    --acs: #0b1b33;
+    --segon: #0a58c2;
+    --rs: #2a0d0d;
+    --gs: #17382b;
+    --ys: #3d3410;
+    --os: #43301a;
+    --scrim: rgba(0, 0, 0, 0.7);
+    --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%239BA3B2' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #000000;
+  --card: #101114;
+  --soft: #1a1c21;
+  --ln: #26282e;
+  --tx: #ffffff;
+  --mu: #9ba3b2;
+  --ac: var(--ac-dark);
+  --acs: #0b1b33;
+  --segon: #0a58c2;
+  --rs: #2a0d0d;
+  --gs: #17382b;
+  --ys: #3d3410;
+  --os: #43301a;
+  --scrim: rgba(0, 0, 0, 0.7);
+  --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%239BA3B2' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  color-scheme: dark;
+}
+
+@media (max-width: 760px) {
+  :root {
+    --ctl: 40px;
+  }
+}

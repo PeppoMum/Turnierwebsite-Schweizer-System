@@ -105,7 +105,7 @@ describe('Pausen', () => {
       const rounds = roundsFrom(`rest-${s}`, 16, 8);
       const plan = createWaveSchedule(rounds, fieldsOf(4), constraints({ desiredRestMinutes: 12 }));
       // naive: Spiele einfach in Paarungsreihenfolge auf die Wellen legen
-      const naivePlan = createWaveSchedule(rounds, fieldsOf(4), constraints({ desiredRestMinutes: 0 }));
+      const naivePlan = createWaveSchedule(rounds, fieldsOf(4), constraints({ desiredRestMinutes: 0, evenRest: false }));
       const o = restSummary(plan).backToBack;
       const n = restSummary(naivePlan).backToBack;
       expect(o).toBeLessThanOrEqual(n);
@@ -116,6 +116,44 @@ describe('Pausen', () => {
     }
     // Viele Übergänge sind durch die Paarungen erzwungen; vermeidbare werden vermieden.
     expect(optimized).toBeLessThan(naive);
+  });
+
+  it('gleicht die Pausen aller Teams an (evenRest, Standard)', () => {
+    // Pausen je Team und Übergang, in Minuten.
+    const rests = (plan: ReturnType<typeof createWaveSchedule>): number[] => {
+      const byTeam = new Map<string, { startISO: string; endISO: string }[]>();
+      for (const m of plan.matches) for (const t of [m.teamAId, m.teamBId]) byTeam.set(t, [...(byTeam.get(t) ?? []), m]);
+      const out: number[] = [];
+      for (const list of byTeam.values()) {
+        list.sort((a, b) => Date.parse(a.startISO) - Date.parse(b.startISO));
+        for (let i = 1; i < list.length; i++) out.push(minutesBetween(list[i - 1]!.endISO, list[i]!.startISO));
+      }
+      return out;
+    };
+    const stats = (xs: number[]) => {
+      const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+      return {
+        mean,
+        spread: Math.sqrt(xs.reduce((a, b) => a + (b - mean) ** 2, 0) / xs.length),
+        worst: Math.max(...xs.map((x) => Math.abs(x - mean))),
+      };
+    };
+    const sum = { even: { spread: 0, worst: 0 }, plain: { spread: 0, worst: 0 } };
+    for (let s = 0; s < 10; s++) {
+      for (const [teams, fields] of [[16, 4], [24, 4], [20, 3], [30, 4], [15, 2]] as const) {
+        const rounds = roundsFrom(`even-${s}-${teams}`, teams, 7);
+        const even = stats(rests(createWaveSchedule(rounds, fieldsOf(fields), constraints())));
+        const plain = stats(rests(createWaveSchedule(rounds, fieldsOf(fields), constraints({ evenRest: false }))));
+        // Ohne Freilos hängt der Durchschnitt nur vom Format ab, nicht von der Verteilung.
+        if (teams % 2 === 0) expect(Math.abs(even.mean - plain.mean)).toBeLessThan(1e-9);
+        sum.even.spread += even.spread;
+        sum.even.worst += even.worst;
+        sum.plain.spread += plain.spread;
+        sum.plain.worst += plain.worst;
+      }
+    }
+    expect(sum.even.spread).toBeLessThan(sum.plain.spread);
+    expect(sum.even.worst).toBeLessThan(sum.plain.worst * 0.9);
   });
 
   it('warnt mit Teamnamen, wenn das weiche Pausenziel nicht erreichbar ist', () => {

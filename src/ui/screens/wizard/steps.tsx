@@ -278,6 +278,8 @@ export function StepOperation({ draft, update, errors }: StepProps) {
   const end = `${String(Math.floor(endMin / 60) % 24).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
   const setField = (i: number, name: string) => update({ fields: draft.fields.map((f, j) => (j === i ? { ...f, name } : f)) });
   const uneven = matches % Math.max(1, draft.fields.length) !== 0;
+  // Pause bei gleicher Welle in zwei aufeinanderfolgenden Runden = Durchschnitt über alle Teams.
+  const averageRest = perRound + Math.max(draft.turnoverMinutes || 0, draft.roundBreakMinutes || 0) - (draft.matchMinutes || 0);
 
   return (
     <>
@@ -331,8 +333,14 @@ export function StepOperation({ draft, update, errors }: StepProps) {
       <div className="stack tight">
         <label className="check">
           <input type="checkbox" checked={draft.restOptimization} onChange={(e) => update({ restOptimization: e.target.checked })} />
-          <span>Pausen zwischen den Spielen eines Teams möglichst lang halten</span>
+          <span>Pausen für alle Teams möglichst gleich lang halten</span>
         </label>
+        {draft.restOptimization && waves > 1 && (
+          <span className="small-text" style={{ paddingLeft: 28 }}>
+            Jedes Team hat zwischen zwei Spielen im Schnitt {waves - 1 === 1 ? 'eine Spielzeit' : `${waves - 1} Spielzeiten`} Pause
+            (ca. {formatMinutes(averageRest)}). Der Plan hält möglichst alle Teams nah an diesem Wert.
+          </span>
+        )}
         <label className="check">
           <input type="checkbox" checked={draft.hardRestMinutes !== null} onChange={(e) => update({ hardRestMinutes: e.target.checked ? 10 : null })} />
           <span>Feste Mindestpause erzwingen</span>

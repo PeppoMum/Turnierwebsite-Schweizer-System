@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { TournamentData } from '../../data/types';
 import { computeStandings } from '../../data/logic';
-import type { AdminTab } from '../../router';
+import { href, type AdminTab } from '../../router';
 import { formatDateShort } from '../../format';
 import { TournamentStatusPill } from '../../components/ui';
 import { StandingsTable, type TeamInfo } from '../../components/StandingsTable';
@@ -75,9 +75,9 @@ function StandingsSection({ ctx }: { ctx: AdminCtx }) {
   return (
     <div className="section">
       <div className="row no-print">
-        <button type="button" className="btn" onClick={() => window.print()}>
-          Drucken
-        </button>
+        <a className="btn" href={href({ name: 'print', id: ctx.data.tournament.id })}>
+          Drucken oder PDF
+        </a>
       </div>
       <StandingsTable rows={rows} teams={ctx.teamInfo} showBuchholz={showBuchholz} />
       <p className="small-text">

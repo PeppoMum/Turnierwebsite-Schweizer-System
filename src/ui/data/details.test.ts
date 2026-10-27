@@ -72,13 +72,12 @@ describe('Mannschaften ändern und nachmelden', () => {
   it('nimmt eine nachgemeldete Mannschaft in die nächste Runde auf', async () => {
     const s = store();
     await s.saveTeam('herbstcup', null, { name: 'Spätstarter' });
-    let d = s.get('herbstcup')!;
+    const d = s.get('herbstcup')!;
     const late = d.teams.find((t) => t.name === 'Spätstarter')!;
     expect(late.status).toBe('active');
     expect(new Set(d.teams.map((t) => t.id)).size).toBe(d.teams.length);
     for (const m of d.matches.filter((x) => x.status !== 'completed')) await s.setMatchStatus('herbstcup', m.id, 'completed');
     await s.closeCurrentRound('herbstcup');
-    d = s.get('herbstcup')!;
     const preview = s.previewNextRound('herbstcup', 1);
     const placed = preview.pairs.some((p) => p.teamAId === late.id || p.teamBId === late.id) || preview.byeTeamId === late.id;
     expect(placed).toBe(true);

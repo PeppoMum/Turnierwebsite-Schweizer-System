@@ -5,6 +5,7 @@ export type Route =
   | { name: 'dashboard' }
   | { name: 'create' }
   | { name: 'admin'; id: string; tab: AdminTab }
+  | { name: 'print'; id: string }
   | { name: 'public'; id: string; tab: PublicTab }
   | { name: 'invite'; tid: string; inviteId: string }
   | { name: 'notFound' };
@@ -20,6 +21,7 @@ export function parseHash(hash: string): Route {
   const parts = path.split('/').filter(Boolean).map(decodeURIComponent);
   if (parts.length === 0) return { name: 'dashboard' };
   if (parts[0] === 'neu' && parts.length === 1) return { name: 'create' };
+  if (parts[0] === 'turnier' && parts[1] && parts[2] === 'druck' && parts.length === 3) return { name: 'print', id: parts[1] };
   if (parts[0] === 'turnier' && parts[1]) {
     const tab = (parts[2] ?? 'live') as AdminTab;
     return ADMIN_TABS.includes(tab) ? { name: 'admin', id: parts[1], tab } : { name: 'notFound' };
@@ -40,6 +42,8 @@ export function href(route: Route): string {
       return '#/neu';
     case 'admin':
       return `#/turnier/${encodeURIComponent(route.id)}${route.tab === 'live' ? '' : `/${route.tab}`}`;
+    case 'print':
+      return `#/turnier/${encodeURIComponent(route.id)}/druck`;
     case 'public':
       return `#/t/${encodeURIComponent(route.id)}${route.tab === 'aktuell' ? '' : `/${route.tab}`}`;
     case 'invite':

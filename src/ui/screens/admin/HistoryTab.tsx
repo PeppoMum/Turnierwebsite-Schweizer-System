@@ -17,18 +17,21 @@ export function HistoryTab({ ctx }: { ctx: AdminCtx }) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
 
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      setEntries(await service.loadHistory(tid));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Der Verlauf konnte nicht geladen werden.');
-    }
-  }, [service, tid]);
+  const fetchEntries = useCallback(
+    () =>
+      service.loadHistory(tid).then(
+        (list) => {
+          setEntries(list);
+          setError(null);
+        },
+        (err: unknown) => setError(err instanceof Error ? err.message : 'Der Verlauf konnte nicht geladen werden.'),
+      ),
+    [service, tid],
+  );
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void fetchEntries();
+  }, [fetchEntries]);
 
   const lines = useMemo(() => (entries ? describeHistory(entries, ctx.data, user?.uid) : []), [entries, ctx.data, user?.uid]);
   const shown = filter === 'results' ? lines.filter((l) => l.isResult) : lines;
@@ -47,7 +50,7 @@ export function HistoryTab({ ctx }: { ctx: AdminCtx }) {
             { value: 'results', label: 'Nur Spiele' },
           ]}
         />
-        <button type="button" className="btn" onClick={() => void load()}>
+        <button type="button" className="btn" onClick={() => void fetchEntries()}>
           Aktualisieren
         </button>
       </div>

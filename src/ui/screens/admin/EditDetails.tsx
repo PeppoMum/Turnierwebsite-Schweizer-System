@@ -51,9 +51,12 @@ export function EditDetailsDialog({ data, onClose }: { data: TournamentData; onC
         <Field label="Veranstaltungsort">
           {(id) => <input id={id} className="input" value={draft.venue} onChange={(e) => update({ venue: e.target.value })} placeholder="Sportplatz, Halle" />}
         </Field>
-        <Field label="Datum" error={errors.localDate ?? (dateLocked ? 'Steht fest, weil schon Runden ausgelost sind.' : undefined)}>
+        <Field label="Datum" error={errors.localDate}>
           {(id, d) => (
-            <input id={id} className="input" type="date" value={draft.localDate} disabled={dateLocked} aria-describedby={d} onChange={(e) => update({ localDate: e.target.value })} />
+            <>
+              <input id={id} className="input" type="date" value={draft.localDate} disabled={dateLocked} aria-describedby={d} onChange={(e) => update({ localDate: e.target.value })} />
+              {dateLocked && <span className="small-text">Steht fest, weil schon Runden ausgelost sind.</span>}
+            </>
           )}
         </Field>
       </div>

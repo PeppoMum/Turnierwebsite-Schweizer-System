@@ -796,7 +796,8 @@ input[type='file'].input::file-selector-button {
 
 .wave-head {
   display: flex;
-  align-items: baseline;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
   font-size: 14px;
   font-weight: 600;
@@ -854,15 +855,6 @@ input[type='file'].input::file-selector-button {
   flex-wrap: wrap;
   gap: 4px 14px;
   font-size: 14px;
-}
-
-.stripe {
-  display: flex;
-  height: 6px;
-}
-
-.stripe i {
-  flex: 1;
 }
 
 .sponsors {
@@ -1222,6 +1214,91 @@ input[type='file'].input::file-selector-button {
   background: var(--acs);
   color: var(--ac);
   font-weight: 600;
+}
+
+/* Mannschaftsauswahl (aufklappen oder eintippen) */
+.picker {
+  position: relative;
+}
+
+.picker .input {
+  padding-left: 38px;
+  padding-right: 40px;
+}
+
+.picker-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--mu);
+  display: flex;
+  pointer-events: none;
+}
+
+.picker-toggle {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  bottom: 2px;
+  width: 38px;
+  border: 0;
+  background: transparent;
+  color: var(--mu);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: var(--r-ctl);
+}
+
+.picker-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--card);
+  color: var(--tx);
+  border: 1px solid var(--ln);
+  border-radius: var(--r-card);
+  padding: 6px;
+  display: grid;
+  gap: 2px;
+  z-index: 30;
+}
+
+.picker-list .menu-item {
+  width: 100%;
+}
+
+.picker-list .menu-item.active {
+  background: var(--soft);
+}
+
+.picker-list .menu-item[aria-selected='true'] {
+  color: var(--ac);
+  font-weight: 600;
+}
+
+.picker-empty {
+  padding: 8px 10px;
+  color: var(--mu);
+  font-size: 14px;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+}
+
+@media (max-width: 640px) {
+  .filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .tabbar {

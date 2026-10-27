@@ -37,6 +37,8 @@ export interface AuthService {
   redeemInvitation(tid: string, inviteId: string): Promise<RoleName>;
   /** Liefert den fertigen Einladungslink. */
   createInvitation?(tid: string, input: CreateInvitationInput): Promise<string>;
+  /** Helferlink ohne Anmeldung: meldet bei Bedarf anonym an und gibt die Helferrolle. */
+  joinWithHelperLink?(tid: string, linkId: string): Promise<void>;
 }
 
 export const ROLE_LABEL: Record<RoleName, string> = {

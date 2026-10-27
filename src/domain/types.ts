@@ -69,6 +69,8 @@ export interface Tournament {
   fieldIds: string[];
   currentRound: number;
   revision: number;
+  /** Geheimer Teil des Helferlinks ohne Anmeldung; fehlt/null = ausgeschaltet. */
+  openHelperLinkId?: string | null;
   publishedAt?: string;
   finishedAt?: string;
   createdAt: string;

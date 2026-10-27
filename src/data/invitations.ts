@@ -187,3 +187,74 @@ export async function revokeHelper(
     throw toDataError(err);
   }
 }
+
+// ---------- Helferlink ohne Anmeldung ----------
+// Optional je Turnier: Wer den Link kennt, darf ohne Konto Ergebnisse eintragen (Rolle
+// results_helper, alle Felder). Der Link enthält eine lange Zufalls-ID, die im Turnier als
+// `openHelperLinkId` steht. Der Helfer meldet sich anonym an und legt seinen Grant mit dieser
+// ID an; die Regeln lassen solche Grants nur gelten, solange das Turnier genau diese ID hat.
+// Wer schon ein Konto mit Rolle hat (z. B. die Turnierleitung), nutzt einfach diese Rolle.
+// Ausschalten (null) oder neu erzeugen macht alle bisherigen Links sofort wirkungslos.
+
+const LINK_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+/** 24 Zeichen aus 62 (~143 Bit), nicht erratbar. */
+export function newOpenHelperLinkId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return Array.from(bytes, (b) => LINK_ALPHABET[b % LINK_ALPHABET.length]).join('');
+}
+
+/**
+ * Mit dem Helferlink beitreten (anonym). Hat die Person schon eine Rolle, bleibt sie;
+ * eine Rolle aus einem älteren, inzwischen ersetzten Link wird auf den neuen Link umgestellt.
+ */
+export async function joinWithOpenHelperLink(
+  db: Firestore,
+  actor: Actor,
+  tid: string,
+  linkId: string,
+): Promise<void> {
+  try {
+    await runTransaction(db, async (tx) => {
+      const grantRef = paths.roleGrant(db, tid, actor.uid);
+      const grantSnap = await tx.get(grantRef);
+      if (grantSnap.exists()) {
+        const g = grantSnap.data();
+        if (g.openLinkId && g.openLinkId !== linkId && !g.revokedAt) tx.update(grantRef, { openLinkId: linkId });
+        return;
+      }
+      // Link-Rollen gibt es nur für anonyme Logins; ein Konto ohne Rolle käme sonst dauerhaft hinein.
+      if (!actor.anonymous) {
+        throw new DataError(
+          'invitation_unusable',
+          'Du bist mit einem Konto angemeldet, das bei diesem Turnier nicht mitmacht. Melde dich ab und öffne den Link noch einmal.',
+        );
+      }
+      tx.set(grantRef, {
+        uid: actor.uid,
+        tournamentId: tid,
+        role: 'results_helper',
+        allowedFieldIds: null,
+        canPublishRounds: false,
+        expiresAt: null,
+        revokedAt: null,
+        openLinkId: linkId,
+        email: null,
+        createdAt: serverTimestamp(),
+        createdBy: actor.uid,
+      } as never);
+    });
+    // Probe: Ist der Link (noch) gültig, darf die Person das Turnier jetzt lesen.
+    await getDoc(paths.tournament(db, tid));
+  } catch (err) {
+    const e = toDataError(err);
+    if (e.code === 'permission_denied') {
+      throw new DataError(
+        'invitation_unusable',
+        'Dieser Helferlink gilt nicht mehr. Bitte frag die Turnierleitung nach dem aktuellen Link.',
+        { cause: err },
+      );
+    }
+    throw e;
+  }
+}

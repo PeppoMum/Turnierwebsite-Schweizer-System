@@ -194,6 +194,7 @@ export class MockTournamentStore implements TournamentService {
       revision: 1,
       publishedAt: undefined,
       finishedAt: undefined,
+      openHelperLinkId: null,
       createdAt: now,
       updatedAt: now,
       fieldIds: copy.tournament.fieldIds.map(remap),
@@ -219,6 +220,13 @@ export class MockTournamentStore implements TournamentService {
   async setVisibility(id: string, visibility: TournamentData['tournament']['visibility']): Promise<void> {
     this.mutate(id, (d) => {
       d.tournament.visibility = visibility;
+    });
+  }
+
+  async setOpenHelperLink(id: string, mode: 'on' | 'off' | 'renew'): Promise<void> {
+    this.mutate(id, (d) => {
+      if (mode === 'on' && d.tournament.openHelperLinkId) return;
+      d.tournament.openHelperLinkId = mode === 'off' ? null : uid('h') + uid('k');
     });
   }
 

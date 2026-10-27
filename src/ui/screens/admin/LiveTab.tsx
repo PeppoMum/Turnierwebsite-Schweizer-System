@@ -120,27 +120,7 @@ export function LiveTab({ ctx }: { ctx: AdminCtx }) {
         </div>
         {quick && <span className="small-text">Schnellmodus: Ergebnis eintragen und mit einem Klick beenden.</span>}
         {groupByWave(roundMatches).map((w) => (
-          <div key={w.wave} className="stack">
-            <div className="wave-head">
-              <span>Welle {w.wave + 1}</span>
-              <span className="muted">{formatTime(w.startISO, t.timeZone)} Uhr</span>
-            </div>
-            <div className="grid">
-              {w.matches.map((m) => (
-                <MatchCard
-                  key={`${m.id}-${quick}`}
-                  tid={t.id}
-                  match={m}
-                  teamName={ctx.teamName}
-                  teamLogo={ctx.teamLogo}
-                  fieldName={ctx.fieldName(m.fieldId)}
-                  timeZone={t.timeZone}
-                  quickMode={quick}
-                  locked={finished}
-                />
-              ))}
-            </div>
-          </div>
+          <WaveBlock key={w.wave} ctx={ctx} wave={w} quick={quick} locked={finished} />
         ))}
         {bye && (
           <div className="row">
@@ -153,6 +133,79 @@ export function LiveTab({ ctx }: { ctx: AdminCtx }) {
       {shiftOpen && <ShiftDialog ctx={ctx} onClose={() => setShiftOpen(false)} />}
       {preview && <RoundPreviewDialog ctx={ctx} preview={preview} setPreview={setPreview} onClose={() => setPreview(null)} />}
     </>
+  );
+}
+
+/** Eine Anstoßzeit (Welle) mit allen Spielen und „Alle anpfeifen“. Auch in der Helferansicht. */
+export function WaveBlock({
+  ctx,
+  wave,
+  quick,
+  locked,
+  canCorrect,
+}: {
+  ctx: AdminCtx;
+  wave: ReturnType<typeof groupByWave>[number];
+  quick: boolean;
+  locked: boolean;
+  canCorrect?: boolean;
+}) {
+  const service = useService();
+  const t = ctx.data.tournament;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const waiting = wave.matches.filter((m) => m.status === 'scheduled');
+  const time = formatTime(wave.startISO, t.timeZone);
+
+  const startAll = async () => {
+    setBusy(true);
+    setError(null);
+    // Einzeln speichern: jedes Spiel hat seinen eigenen Stand. Fehler sammeln, den Rest trotzdem anpfeifen.
+    const results = await Promise.allSettled(waiting.map((m) => service.setMatchStatus(t.id, m.id, 'live')));
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed > 0) {
+      setError(
+        failed === waiting.length
+          ? 'Die Spiele ließen sich nicht anpfeifen. Bitte versuch es noch einmal.'
+          : `${failed} von ${waiting.length} Spielen ließen sich nicht anpfeifen. Bitte pfeif sie einzeln an.`,
+      );
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="stack">
+      <div className="wave-head">
+        <span>Welle {wave.wave + 1}</span>
+        <span className="muted">{time} Uhr</span>
+        {!locked && waiting.length > 1 && (
+          <>
+            <span className="spacer" />
+            <button type="button" className="btn pri" disabled={busy} onClick={startAll}>
+              <Icon name="live" />
+              {busy ? 'Pfeift an …' : `Alle ${time}-Spiele anpfeifen`}
+            </button>
+          </>
+        )}
+      </div>
+      {error && <Notice tone="warn" title={error} />}
+      <div className="grid">
+        {wave.matches.map((m) => (
+          <MatchCard
+            key={`${m.id}-${quick}`}
+            tid={t.id}
+            match={m}
+            teamName={ctx.teamName}
+            teamLogo={ctx.teamLogo}
+            fieldName={ctx.fieldName(m.fieldId)}
+            timeZone={t.timeZone}
+            quickMode={quick}
+            locked={locked}
+            canCorrect={canCorrect}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 

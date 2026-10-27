@@ -40,6 +40,7 @@ import {
   subscribeTournament,
   syncPublicTournament,
   toMatch,
+  newOpenHelperLinkId,
   updateTournamentConfig,
   withdrawTeam as withdrawTeamData,
   type ActorSource,
@@ -147,13 +148,15 @@ export class FirestoreTournamentStore implements TournamentService {
     private actors: ActorSource,
     private onError: (error: DataError) => void = (e) => console.error(e),
   ) {
-    this.uid = actors.current()?.uid ?? null;
-    if (this.uid) this.watchRefs();
+    const initial = actors.current();
+    this.uid = initial?.uid ?? null;
+    // Anonyme Helfer (Helferlink ohne Anmeldung) haben keine Turnierliste.
+    if (initial && !initial.anonymous) this.watchRefs();
     actors.onChange((actor) => {
       if ((actor?.uid ?? null) === this.uid) return;
       this.uid = actor?.uid ?? null;
       this.resetPrivate();
-      if (this.uid) this.watchRefs();
+      if (actor && !actor.anonymous) this.watchRefs();
       this.emit();
     });
   }
@@ -678,6 +681,14 @@ export class FirestoreTournamentStore implements TournamentService {
     const d = this.data(id);
     await setVisibilityData(this.db, this.actor(), id, d.tournament.revision, visibility, {
       standings: visibility === 'full' ? this.standingsFor(d) : undefined,
+    });
+  }
+
+  async setOpenHelperLink(id: string, mode: 'on' | 'off' | 'renew'): Promise<void> {
+    const d = this.data(id);
+    if (mode === 'on' && d.tournament.openHelperLinkId) return;
+    await updateTournamentConfig(this.db, this.actor(), id, d.tournament.revision, {
+      openHelperLinkId: mode === 'off' ? null : newOpenHelperLinkId(),
     });
   }
 

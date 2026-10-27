@@ -16,7 +16,8 @@
     "test:e2e": "playwright test",
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
-    "emulators": "firebase emulators:start --project demo-turnier"
+    "emulators": "firebase emulators:start --project demo-turnier",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-turnier \"vitest run --config firebase/vitest.config.ts\""
   },
   "dependencies": {
     "firebase": "^13.1.0",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@firebase/rules-unit-testing": "^6.0.0",
     "@playwright/test": "1.63.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
@@ -37,6 +39,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "fast-check": "^4.10.2",
+    "firebase-tools": "^15.34.1",
     "globals": "^17.13.0",
     "jsdom": "^29.1.1",
     "typescript": "~6.0",

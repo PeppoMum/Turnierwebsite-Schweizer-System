@@ -3,7 +3,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { simulateTournament } from '../pairing/testing/simulate';
 import { solveAssignment } from './assignment';
-import { createWaveSchedule, restSummary, waveSizes } from './plan';
+import { createWaveSchedule, planWaves, restSummary, roundMinutes, waveSizes, wavesPerRound } from './plan';
 import { previewShift } from './shift';
 import { formatLocalTime, minutesBetween, timeZoneOffsetMinutes, zonedLocalToISO } from './time';
 import type { RoundToSchedule, ScheduleConstraints, ScheduleField, TimedMatch } from './types';
@@ -279,4 +279,15 @@ describe('Eigenschaften zufälliger Spielpläne', () => {
       { numRuns: 100, seed: 11 },
     );
   }, 120_000);
+});
+
+describe('Einfache Vorschau (planWaves, roundMinutes)', () => {
+  it('verteilt wie die echte Planung auf Wellen und Felder', () => {
+    const plan = planWaves(8, ['a', 'b', 'c', 'd', 'e'], '2026-06-13T08:00:00.000Z', 12, 3, 'max_capacity');
+    expect(plan.map((p) => p.waveIndex)).toEqual([0, 0, 0, 0, 0, 1, 1, 1]);
+    expect(plan[5]).toEqual({ fieldId: 'a', waveIndex: 1, startISO: '2026-06-13T08:15:00.000Z' });
+    expect(planWaves(8, ['a', 'b', 'c', 'd', 'e'], '2026-06-13T08:00:00.000Z', 12, 3, 'balanced_waves').filter((p) => p.waveIndex === 0)).toHaveLength(4);
+    expect(wavesPerRound(16, 4)).toBe(2);
+    expect(roundMinutes(16, 4, 12, 3)).toBe(27);
+  });
 });

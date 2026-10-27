@@ -5,6 +5,7 @@ Getrennter Schritt nach der Paarung; die Paarungen werden nie verändert.
 | Funktion | Zweck |
 |---|---|
 | `createWaveSchedule(rounds, fields, constraints, { teamLastEndISO?, teamNames? })` | Runden auf Wellen und Felder verteilen |
+| `planWaves(...)`, `wavesPerRound`, `roundMinutes` | Einfache Vorschau ohne Teamwissen, gleiche Signatur wie der UI-Stellvertreter |
 | `waveSizes(matches, fields, allocation)` | `max_capacity` (5 + 3) oder `balanced_waves` (4 + 4) |
 | `validateSchedule(matches, { turnoverMinutes })` | Feld doppelt belegt, Team gleichzeitig in zwei Spielen, Pausen |
 | `previewShift(matches, ±min, { fromRoundNumber? })` | Nur noch nicht begonnene Spiele verschieben, mit Kollisionsprüfung |

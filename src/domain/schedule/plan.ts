@@ -219,3 +219,37 @@ export function restSummary(plan: SchedulePlan): { minRestMinutes: number; backT
   }
   return { minRestMinutes: minRest, backToBack };
 }
+
+/**
+ * Einfache Feld-/Zeitzuteilung ohne Teamwissen (z. B. für Vorschau im Assistenten):
+ * Spiel i in Paarungsreihenfolge → Welle und Feld. Für die echte Planung mit
+ * Pausenoptimierung `createWaveSchedule` verwenden.
+ */
+export function planWaves(
+  pairCount: number,
+  fieldIds: readonly string[],
+  startISO: string,
+  matchMinutes: number,
+  turnoverMinutes: number,
+  allocation: ScheduleConstraints['allocation'],
+): Array<{ fieldId: string; waveIndex: number; startISO: string }> {
+  if (pairCount === 0) return [];
+  if (fieldIds.length === 0) throw new Error('Es ist kein aktives Spielfeld vorhanden.');
+  const out: Array<{ fieldId: string; waveIndex: number; startISO: string }> = [];
+  waveSizes(pairCount, fieldIds.length, allocation).forEach((size, w) => {
+    const waveStart = addMinutes(startISO, w * (matchMinutes + turnoverMinutes));
+    for (let k = 0; k < size; k++) out.push({ fieldId: fieldIds[k]!, waveIndex: w, startISO: waveStart });
+  });
+  return out;
+}
+
+/** Wellen je Runde bei n aktiven Teams. */
+export function wavesPerRound(teamCount: number, fieldCount: number): number {
+  return wavesNeeded(Math.floor(teamCount / 2), Math.max(1, fieldCount));
+}
+
+/** Dauer einer Runde vom ersten Anstoß bis zum letzten Abpfiff in Minuten. */
+export function roundMinutes(teamCount: number, fieldCount: number, matchMinutes: number, turnoverMinutes: number): number {
+  const w = wavesPerRound(teamCount, fieldCount);
+  return w * matchMinutes + Math.max(0, w - 1) * turnoverMinutes;
+}

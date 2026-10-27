@@ -6,6 +6,7 @@ Reine, deterministische Funktionen ohne Firestore- oder UI-Abhängigkeit.
 
 | Funktion | Zweck |
 |---|---|
+| `previewNextRound({ ...turnierdaten, standings }, seed)` | Bequemer Einstieg für die Oberfläche: nächste Runde aus Turnierdaten + Tabelle aus `scoring`, Rückgabe wie der UI-Stellvertreter (`pairs`, `byeTeamId`, `diagnostics`) |
 | `previewDrawRounds({ teams, count, seed, meetings? })` | Losrunden 1..R gemeinsam auslosen (§7.1) |
 | `pairSwissRound({ roundNumber, teams, meetings, mode, seed })` | Schweizer Runde als globales Matching (§7.2) |
 | `validatePairingPlan(...)`, `swapTeams(plan, x, y)` | Manuelle Änderung prüfen (§7.2 Schritt 7) |

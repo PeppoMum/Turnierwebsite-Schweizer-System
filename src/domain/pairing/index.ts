@@ -23,3 +23,4 @@ export {
 } from './draw';
 export { validatePairingPlan, swapTeams, type ProposedPlan, type ValidatePlanInput, type ValidationReport } from './validate';
 export { createRng, hashString, deriveSeed } from './random';
+export { previewNextRound, toPairingPreview, type NextRoundInput, type PairingPreview, type StandingForPairing } from './preview';

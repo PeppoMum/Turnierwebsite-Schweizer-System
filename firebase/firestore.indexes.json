@@ -1,4 +1,10 @@
 {
   "indexes": [],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    { "collectionGroup": "assets", "fieldPath": "dataUrl", "indexes": [] },
+    { "collectionGroup": "publicAssets", "fieldPath": "dataUrl", "indexes": [] },
+    { "collectionGroup": "audit", "fieldPath": "before", "indexes": [] },
+    { "collectionGroup": "audit", "fieldPath": "after", "indexes": [] },
+    { "collectionGroup": "publicStandings", "fieldPath": "rows", "indexes": [] }
+  ]
 }

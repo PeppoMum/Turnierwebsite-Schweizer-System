@@ -1,11 +1,579 @@
 rules_version = '2';
 
-// Vorläufig: alles gesperrt. Die echten Regeln (öffentliche Projektionen, Rollen je Turnier)
-// kommen mit der Datenschicht. Niemals `allow write: if true`.
+// Sicherheitsregeln (Spezifikation §3, §5, §10). Aufbau und Begründungen: firebase/README.md.
+//
+// Grundsätze:
+// - tournaments/** ist privat: nur Mitglieder mit gültigem roleGrant lesen.
+// - publicTournaments/** ist die öffentliche Projektion. Ergebnisse und Tabelle liegen in
+//   eigenen Collections (publicResults, publicStandings), deren Lesbarkeit an den
+//   Sichtbarkeitsmodus gebunden ist. Im Kindermodus sind sie für niemanden lesbar und
+//   dürfen nicht angelegt werden; publicMatches enthalten nie Tore.
+// - Schreiben nur mit echtem Konto (kein anonymer Login) und Rolle je uid + Turnier.
+// - Jede Match-Änderung erhöht `revision` um genau 1 und verweist auf einen Audit-Eintrag,
+//   der im selben Batch/Transaktion entsteht.
+// - Kein `allow write: if true`, keine Hard-Deletes von Turnieren.
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if false;
+
+    // ---------- Identität ----------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Schreibende Personen brauchen eine echte Identität (E-Mail, Google ...), keinen anonymen Login.
+    function isAccount() {
+      return signedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    function me() {
+      return request.auth.uid;
+    }
+
+    // ---------- Pfade ----------
+
+    function tournamentPath(tid) {
+      return /databases/$(database)/documents/tournaments/$(tid);
+    }
+
+    function grantPath(tid, uid) {
+      return /databases/$(database)/documents/tournaments/$(tid)/roleGrants/$(uid);
+    }
+
+    function matchPath(tid, matchId) {
+      return /databases/$(database)/documents/tournaments/$(tid)/matches/$(matchId);
+    }
+
+    function auditPath(tid, auditId) {
+      return /databases/$(database)/documents/tournaments/$(tid)/audit/$(auditId);
+    }
+
+    function invitationPath(tid, inviteId) {
+      return /databases/$(database)/documents/tournaments/$(tid)/invitations/$(inviteId);
+    }
+
+    function publicPath(tid) {
+      return /databases/$(database)/documents/publicTournaments/$(tid);
+    }
+
+    // ---------- Rollen ----------
+
+    function grantActive(g) {
+      return g.get('revokedAt', null) == null
+        && (g.get('expiresAt', null) == null || g.expiresAt > request.time);
+    }
+
+    function myGrant(tid) {
+      return get(grantPath(tid, me())).data;
+    }
+
+    function isMember(tid) {
+      return isAccount() && exists(grantPath(tid, me())) && grantActive(myGrant(tid));
+    }
+
+    function hasRole(tid, roles) {
+      return isMember(tid) && myGrant(tid).role in roles;
+    }
+
+    function isOwner(tid) {
+      return hasRole(tid, ['owner']);
+    }
+
+    function isHelper(tid) {
+      return hasRole(tid, ['results_helper', 'extended_helper']);
+    }
+
+    function isExtendedHelper(tid) {
+      return hasRole(tid, ['extended_helper']);
+    }
+
+    // Runden freigeben: Owner oder erweiterter Helfer mit ausdrücklichem Recht.
+    function canPublish(tid) {
+      return isOwner(tid)
+        || (isExtendedHelper(tid) && myGrant(tid).get('canPublishRounds', false) == true);
+    }
+
+    // „Nur zugelassene Spiele“: optional auf Felder beschränkt.
+    function fieldAllowed(tid, fieldId) {
+      return myGrant(tid).get('allowedFieldIds', null) == null
+        || fieldId in myGrant(tid).allowedFieldIds;
+    }
+
+    // Erstellung eines neuen Turniers im selben Batch (Grant, Audit, Nutzerreferenz).
+    function isCreatingTournament(tid) {
+      return isAccount()
+        && !exists(tournamentPath(tid))
+        && getAfter(tournamentPath(tid)).data.ownerUid == me();
+    }
+
+    // ---------- Hilfen ----------
+
+    function unchanged(keys) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(keys);
+    }
+
+    function onlyChanges(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    function stampedNow(field) {
+      return request.resource.data[field] == request.time;
+    }
+
+    function isShortString(v, maxLen) {
+      return v is string && v.size() <= maxLen;
+    }
+
+    function optString(d, key, maxLen) {
+      return !(key in d) || d[key] == null || isShortString(d[key], maxLen);
+    }
+
+    function validVisibility(v) {
+      return v in ['full', 'no_standings', 'kids'];
+    }
+
+    function validTournamentStatus(v) {
+      return v in ['draft', 'published', 'running', 'finished', 'archived'];
+    }
+
+    function isGoal(v) {
+      return v is int && v >= 0 && v <= 99;
+    }
+
+    function noGoals(d) {
+      return d.get('goalsA', null) == null && d.get('goalsB', null) == null;
+    }
+
+    // ---------- Bilder (Spark: kleine Data-URLs, kein Cloud Storage) ----------
+
+    // 40 KiB Binärdaten ergeben ~54.6k Base64-Zeichen; plus Präfix.
+    function validAsset(d) {
+      return d.keys().hasOnly(['dataUrl', 'mimeType', 'bytes', 'width', 'height', 'kind',
+                               'createdAt', 'updatedAt'])
+        && d.mimeType in ['image/png', 'image/jpeg', 'image/webp']
+        && d.dataUrl is string
+        && d.dataUrl.size() <= 55000
+        && d.dataUrl.matches('^data:' + d.mimeType + ';base64,[A-Za-z0-9+/]+=*$')
+        && d.bytes is int && d.bytes > 0 && d.bytes <= 40960
+        && d.width is int && d.width > 0 && d.width <= 1024
+        && d.height is int && d.height > 0 && d.height <= 1024
+        && d.kind in ['organizer', 'event', 'team', 'sponsor']
+        && d.updatedAt == request.time;
+    }
+
+    // ---------- Nutzerreferenzen (Dashboard) ----------
+
+    match /users/{uid}/tournamentRefs/{tid} {
+      allow read, delete: if isAccount() && uid == me();
+      allow create: if isAccount() && uid == me()
+        && request.resource.data.keys().hasOnly(['tournamentId', 'role', 'addedAt'])
+        && request.resource.data.tournamentId == tid
+        && request.resource.data.addedAt == request.time
+        && existsAfter(grantPath(tid, me()))
+        && grantActive(getAfter(grantPath(tid, me())).data)
+        && request.resource.data.role == getAfter(grantPath(tid, me())).data.role;
+    }
+
+    // ================= Privat =================
+
+    match /tournaments/{tid} {
+      allow read: if isMember(tid);
+
+      allow create: if isAccount()
+        && request.resource.data.ownerUid == me()
+        && request.resource.data.revision == 0
+        && request.resource.data.resultsRevision == 0
+        && request.resource.data.status == 'draft'
+        && validVisibility(request.resource.data.visibility)
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120
+        && stampedNow('createdAt') && stampedNow('updatedAt')
+        && existsAfter(grantPath(tid, me()));
+
+      // Owner: Konfiguration mit revision+1. Alle Mitglieder: nur den Ergebniszähler
+      // `resultsRevision` hochzählen (Basis für veraltete Paarungsvorschauen).
+      allow update: if stampedNow('updatedAt')
+        && unchanged(['ownerUid', 'createdAt'])
+        && validVisibility(request.resource.data.visibility)
+        && validTournamentStatus(request.resource.data.status)
+        && (
+          (isOwner(tid)
+            && request.resource.data.revision == resource.data.revision + 1
+            && request.resource.data.resultsRevision >= resource.data.resultsRevision
+            && request.resource.data.resultsRevision <= resource.data.resultsRevision + 1)
+          || (isMember(tid)
+            && onlyChanges(['resultsRevision', 'updatedAt'])
+            && request.resource.data.resultsRevision == resource.data.resultsRevision + 1)
+        );
+
+      // Kein Hard-Delete: Turniere werden archiviert (§9).
+      allow delete: if false;
+
+      // ---------- Stammdaten ----------
+
+      match /teams/{docId} {
+        allow read: if isMember(tid);
+        allow write: if isOwner(tid);
+      }
+      match /fields/{docId} {
+        allow read: if isMember(tid);
+        allow write: if isOwner(tid);
+      }
+      match /sponsors/{docId} {
+        allow read: if isMember(tid);
+        allow write: if isOwner(tid);
+      }
+      match /byes/{docId} {
+        allow read: if isMember(tid);
+        allow write: if isOwner(tid);
+      }
+
+      // ---------- Runden ----------
+
+      function roundTransitionOk(from, to) {
+        return from == to
+          || [from, to] in [
+            ['draft', 'preview'], ['preview', 'draft'],
+            ['preview', 'published'], ['published', 'active'],
+            ['published', 'closed'], ['active', 'closed'], ['closed', 'active']
+          ];
+      }
+
+      match /rounds/{roundId} {
+        allow read: if isMember(tid);
+        allow create: if isOwner(tid)
+          && request.resource.data.status in ['draft', 'preview'];
+        // Owner: erlaubte Statusübergänge; freigegebene Runde nie zurück in Entwurf/Vorschau.
+        // Erweiterter Helfer mit Freigaberecht: nur preview -> published.
+        // `resource.data.status == 'preview'` macht die Freigabe zu einem Wettlauf mit genau
+        // einem Gewinner.
+        allow update: if
+          (isOwner(tid)
+            && roundTransitionOk(resource.data.status, request.resource.data.status))
+          || (canPublish(tid)
+            && resource.data.status == 'preview'
+            && request.resource.data.status == 'published'
+            && onlyChanges(['status', 'publishedAt', 'updatedAt']));
+        allow delete: if isOwner(tid) && resource.data.status in ['draft', 'preview'];
+      }
+
+      // ---------- Spiele ----------
+
+      // Gültiger Spielstand je Status (§9): completed nur mit Score, not_played nie mit Score.
+      function scoreFitsStatus(d) {
+        return (d.status == 'completed' && isGoal(d.goalsA) && isGoal(d.goalsB))
+          || (d.status == 'live' && (noGoals(d) || (isGoal(d.goalsA) && isGoal(d.goalsB))))
+          || (d.status == 'not_played' && noGoals(d)
+              && d.notPlayedReason in ['no_show', 'withdrawal', 'cancellation', 'other'])
+          || (d.status in ['draft', 'scheduled', 'cancelled'] && noGoals(d));
+      }
+
+      function resultRelevantChange() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasAny(['goalsA', 'goalsB'])
+          || (resource.data.status == 'completed') != (request.resource.data.status == 'completed');
+      }
+
+      // Audit-Eintrag aus demselben Request, vom selben Akteur, für dieses Spiel bzw. seine Runde.
+      function auditedBy(tid, matchId) {
+        let a = getAfter(auditPath(tid, request.resource.data.lastAuditId)).data;
+        return request.resource.data.lastAuditId != resource.data.get('lastAuditId', '')
+          && a.timestamp == request.time
+          && a.actorUid == me()
+          && ((a.targetType == 'match' && a.targetId == matchId)
+              || (a.targetType == 'round' && a.targetId == request.resource.data.roundId)
+              || (a.targetType == 'tournament' && a.targetId == tid));
+      }
+
+      function resultsCounterBumped(tid) {
+        return getAfter(tournamentPath(tid)).data.resultsRevision
+          == get(tournamentPath(tid)).data.resultsRevision + 1;
+      }
+
+      function helperTransitionOk(tid, from, to) {
+        return [from, to] in [
+            ['scheduled', 'live'], ['scheduled', 'completed'], ['scheduled', 'not_played'],
+            ['live', 'live'], ['live', 'scheduled'], ['live', 'completed'], ['live', 'not_played']
+          ]
+          // Korrektur bereits entschiedener Spiele nur durch erweiterte Helfer.
+          || (isExtendedHelper(tid) && [from, to] in [
+            ['completed', 'completed'], ['completed', 'live'], ['completed', 'scheduled'],
+            ['completed', 'not_played'],
+            ['not_played', 'not_played'], ['not_played', 'scheduled']
+          ]);
+      }
+
+      match /matches/{matchId} {
+        allow read: if isMember(tid);
+
+        allow create: if isOwner(tid)
+          && request.resource.data.revision == 0
+          && request.resource.data.status in ['draft', 'scheduled']
+          && request.resource.data.teamAId is string
+          && request.resource.data.teamBId is string
+          && request.resource.data.teamAId != request.resource.data.teamBId
+          && scoreFitsStatus(request.resource.data);
+
+        allow update: if request.resource.data.revision == resource.data.revision + 1
+          && stampedNow('updatedAt')
+          && unchanged(['createdAt'])
+          && scoreFitsStatus(request.resource.data)
+          && auditedBy(tid, matchId)
+          && (!resultRelevantChange() || resultsCounterBumped(tid))
+          && (
+            // Owner: alles außer zurück in den Entwurf; Paarung nur im Entwurf änderbar.
+            (isOwner(tid)
+              && (resource.data.status == 'draft' || request.resource.data.status != 'draft')
+              && (resource.data.status == 'draft'
+                  || unchanged(['teamAId', 'teamBId', 'roundId', 'roundNumber'])))
+            // Freigabe: draft -> scheduled.
+            || (canPublish(tid)
+              && resource.data.status == 'draft'
+              && request.resource.data.status == 'scheduled'
+              && onlyChanges(['status', 'revision', 'updatedAt', 'updatedBy', 'lastAuditId']))
+            // Helfer: nur Score- und Statusfelder.
+            || (isHelper(tid)
+              && fieldAllowed(tid, resource.data.get('fieldId', null))
+              && helperTransitionOk(tid, resource.data.status, request.resource.data.status)
+              && onlyChanges(['status', 'goalsA', 'goalsB', 'completedAt', 'notPlayedReason',
+                              'revision', 'updatedAt', 'updatedBy', 'lastAuditId']))
+          );
+
+        allow delete: if isOwner(tid) && resource.data.status == 'draft';
+      }
+
+      // ---------- Audit (unveränderlich) ----------
+
+      match /audit/{auditId} {
+        allow read: if isOwner(tid);
+        allow create: if (isMember(tid) || isCreatingTournament(tid))
+          && request.resource.data.keys().hasOnly(['tournamentId', 'actorUid', 'action',
+               'targetType', 'targetId', 'before', 'after', 'timestamp', 'transactionId'])
+          && request.resource.data.tournamentId == tid
+          && request.resource.data.actorUid == me()
+          && request.resource.data.timestamp == request.time
+          && isShortString(request.resource.data.action, 64)
+          && isShortString(request.resource.data.targetType, 32)
+          && isShortString(request.resource.data.targetId, 128)
+          && isShortString(request.resource.data.transactionId, 64);
+        allow update, delete: if false;
+      }
+
+      // ---------- Rollen ----------
+
+      function validGrant(d, grantUid) {
+        return d.keys().hasOnly(['uid', 'tournamentId', 'role', 'expiresAt', 'revokedAt',
+                                 'allowedFieldIds', 'canPublishRounds', 'inviteId', 'email',
+                                 'createdAt', 'createdBy'])
+          && d.uid == grantUid
+          && d.tournamentId == tid
+          && d.role in ['owner', 'results_helper', 'extended_helper']
+          && (d.get('expiresAt', null) == null || d.expiresAt is timestamp)
+          && (d.get('allowedFieldIds', null) == null || d.allowedFieldIds is list)
+          && d.get('canPublishRounds', false) is bool
+          && d.createdAt == request.time
+          && d.createdBy == me();
+      }
+
+      // Ersteller legt beim Anlegen des Turniers seinen eigenen Owner-Grant an.
+      function creatorGrant(d, grantUid) {
+        return isCreatingTournament(tid)
+          && grantUid == me()
+          && d.role == 'owner'
+          && d.get('revokedAt', null) == null
+          && d.get('expiresAt', null) == null;
+      }
+
+      // Einlösung einer Einladung: einmalig, nicht abgelaufen, nicht widerrufen, exakt die
+      // eingeladene Rolle, und die Einladung wird im selben Batch als verbraucht markiert.
+      function redeemedGrant(d, grantUid) {
+        let inv = get(invitationPath(tid, d.inviteId)).data;
+        let invAfter = getAfter(invitationPath(tid, d.inviteId)).data;
+        return isAccount()
+          && grantUid == me()
+          && inv.get('usedBy', null) == null
+          && inv.get('revokedAt', null) == null
+          && inv.expiresAt > request.time
+          && d.role == inv.role
+          && d.get('allowedFieldIds', null) == inv.get('allowedFieldIds', null)
+          && d.get('canPublishRounds', false) == inv.get('canPublishRounds', false)
+          && d.get('expiresAt', null) == inv.get('grantExpiresAt', null)
+          && d.get('revokedAt', null) == null
+          && d.get('email', null) == request.auth.token.get('email', null)
+          && invAfter.usedBy == me();
+      }
+
+      match /roleGrants/{grantUid} {
+        allow read: if isOwner(tid) || (isAccount() && grantUid == me());
+        allow create: if validGrant(request.resource.data, grantUid)
+          && (isOwner(tid)
+              || creatorGrant(request.resource.data, grantUid)
+              || redeemedGrant(request.resource.data, grantUid));
+        // Der Ersteller (ownerUid) kann nicht entzogen werden.
+        allow update: if isOwner(tid)
+          && grantUid != get(tournamentPath(tid)).data.ownerUid
+          && unchanged(['uid', 'tournamentId', 'createdAt', 'createdBy', 'inviteId'])
+          && request.resource.data.role in ['owner', 'results_helper', 'extended_helper'];
+        allow delete: if isOwner(tid) && grantUid != get(tournamentPath(tid)).data.ownerUid;
+      }
+
+      // ---------- Helfer-Einladungen ----------
+      // Die Einladungs-ID im Link ist eine Referenz, keine Schreibberechtigung: Einlösen
+      // verlangt Login, bindet genau eine uid und ist nur einmal möglich.
+
+      match /invitations/{inviteId} {
+        allow get: if isAccount();
+        allow list: if isOwner(tid);
+        allow create: if isOwner(tid)
+          && request.resource.data.keys().hasOnly(['tournamentId', 'tournamentTitle', 'role',
+               'allowedFieldIds', 'canPublishRounds', 'grantExpiresAt', 'expiresAt',
+               'createdAt', 'createdBy', 'usedBy', 'usedAt', 'revokedAt'])
+          && request.resource.data.tournamentId == tid
+          && isShortString(request.resource.data.tournamentTitle, 120)
+          && request.resource.data.role in ['owner', 'results_helper', 'extended_helper']
+          && request.resource.data.expiresAt is timestamp
+          && request.resource.data.expiresAt > request.time
+          && request.resource.data.expiresAt <= request.time + duration.value(30, 'd')
+          && request.resource.data.get('usedBy', null) == null
+          && request.resource.data.get('revokedAt', null) == null
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.createdBy == me();
+        allow update: if
+          (isOwner(tid) && onlyChanges(['revokedAt']))
+          || (isAccount()
+            && resource.data.get('usedBy', null) == null
+            && resource.data.get('revokedAt', null) == null
+            && resource.data.expiresAt > request.time
+            && onlyChanges(['usedBy', 'usedAt'])
+            && request.resource.data.usedBy == me()
+            && request.resource.data.usedAt == request.time
+            && !exists(grantPath(tid, me()))
+            && getAfter(grantPath(tid, me())).data.inviteId == inviteId);
+        allow delete: if isOwner(tid);
+      }
+
+      // ---------- Bilder ----------
+
+      match /assets/{assetId} {
+        allow read: if isMember(tid);
+        allow create, update: if isOwner(tid) && validAsset(request.resource.data);
+        allow delete: if isOwner(tid);
+      }
+    }
+
+    // ================= Öffentlich (Projektion) =================
+
+    match /publicTournaments/{tid} {
+
+      function pub() {
+        return get(publicPath(tid)).data;
+      }
+
+      function pubAfter() {
+        return getAfter(publicPath(tid)).data;
+      }
+
+      function pubReadable() {
+        return pub().isPublic == true || isMember(tid);
+      }
+
+      // Kindermodus: keine Ergebnisse. no_standings: keine Tabelle.
+      function resultsVisible() {
+        return pub().visibility in ['full', 'no_standings'];
+      }
+
+      function validPublicTournament(d) {
+        return d.keys().hasOnly(['tournamentId', 'title', 'organizerName', 'venue', 'localDate',
+                                 'timeZone', 'organizerAssetId', 'eventAssetId', 'themeColor',
+                                 'status', 'visibility', 'isPublic', 'roundsTotal',
+                                 'currentRound', 'teams', 'fields', 'sponsors',
+                                 'sourceRevision', 'updatedAt'])
+          && d.tournamentId == tid
+          && d.isPublic is bool
+          && validVisibility(d.visibility)
+          && validTournamentStatus(d.status)
+          // Sichtbarkeit muss der privaten Konfiguration nach diesem Request entsprechen.
+          && d.visibility == getAfter(tournamentPath(tid)).data.visibility
+          && d.teams is list && d.fields is list && d.sponsors is list
+          && d.updatedAt == request.time;
+      }
+
+      allow read: if resource.data.isPublic == true || isMember(tid);
+      allow create, update: if isOwner(tid) && validPublicTournament(request.resource.data);
+      allow delete: if isOwner(tid);
+
+      match /publicRounds/{roundId} {
+        allow read: if pubReadable();
+        allow create, update: if canPublish(tid)
+          && request.resource.data.keys().hasOnly(['roundId', 'number', 'mode', 'status',
+               'plannedStartISO', 'actualStartISO', 'byeTeamIds', 'publishedAt', 'updatedAt'])
+          && request.resource.data.status in ['published', 'active', 'closed']
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isOwner(tid);
+      }
+
+      // Paarungen, Felder, Anstoßzeiten und Status – niemals Tore.
+      function validPublicMatch(d) {
+        return d.keys().hasOnly(['matchId', 'roundId', 'roundNumber', 'teamAId', 'teamBId',
+                                 'fieldId', 'waveIndex', 'startISO', 'durationMinutes',
+                                 'status', 'sourceRevision', 'updatedAt'])
+          && d.status in ['scheduled', 'live', 'completed', 'not_played', 'cancelled']
+          && d.updatedAt == request.time;
+      }
+
+      match /publicMatches/{matchId} {
+        allow read: if pubReadable();
+        allow create, update: if validPublicMatch(request.resource.data)
+          && (canPublish(tid)
+            // Helfer spiegeln nur den Status des privaten Spiels nach diesem Request.
+            || (isHelper(tid)
+              && request.method == 'update'
+              && onlyChanges(['status', 'sourceRevision', 'updatedAt'])
+              && request.resource.data.status == getAfter(matchPath(tid, matchId)).data.status
+              && request.resource.data.sourceRevision
+                   == getAfter(matchPath(tid, matchId)).data.revision));
+        allow delete: if isOwner(tid);
+      }
+
+      match /publicResults/{matchId} {
+        allow read: if pubReadable() && resultsVisible();
+        allow create, update: if pubAfter().visibility in ['full', 'no_standings']
+          && request.resource.data.keys().hasOnly(['matchId', 'roundId', 'status', 'goalsA',
+               'goalsB', 'sourceRevision', 'updatedAt'])
+          && request.resource.data.matchId == matchId
+          && request.resource.data.updatedAt == request.time
+          && (isOwner(tid)
+            // Helfer schreiben exakt den privaten Stand nach diesem Request.
+            || (isHelper(tid)
+              && request.resource.data.status == getAfter(matchPath(tid, matchId)).data.status
+              && request.resource.data.get('goalsA', null)
+                   == getAfter(matchPath(tid, matchId)).data.get('goalsA', null)
+              && request.resource.data.get('goalsB', null)
+                   == getAfter(matchPath(tid, matchId)).data.get('goalsB', null)
+              && request.resource.data.sourceRevision
+                   == getAfter(matchPath(tid, matchId)).data.revision));
+        allow delete: if isOwner(tid);
+      }
+
+      // Tabelle: nur im Modus `full`. Wird vom Client berechnet (Spark, kein Backend);
+      // siehe README „Vertrauensgrenze“.
+      match /publicStandings/{docId} {
+        allow read: if pubReadable() && pub().visibility == 'full';
+        allow create, update: if isMember(tid)
+          && pubAfter().visibility == 'full'
+          && request.resource.data.keys().hasOnly(['rows', 'throughRound', 'resultsRevision',
+               'updatedAt'])
+          && request.resource.data.rows is list
+          && request.resource.data.rows.size() <= 64
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isOwner(tid);
+      }
+
+      match /publicAssets/{assetId} {
+        allow read: if pubReadable();
+        allow create, update: if isOwner(tid) && validAsset(request.resource.data);
+        allow delete: if isOwner(tid);
+      }
     }
   }
 }

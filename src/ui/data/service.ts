@@ -1,5 +1,7 @@
 // Schnittstelle zwischen Oberfläche und Datenhaltung. Heute steckt eine Beispiel-Implementierung im Browser dahinter
 // (mockStore.ts), später Firestore. Alle schreibenden Aufrufe sind asynchron, damit sich am UI nichts ändern muss.
+// Schreibfehler (fehlende Rechte, inzwischen geänderte Daten) als Error mit deutscher, verständlicher Meldung werfen;
+// die Oberfläche zeigt sie an.
 import type { MatchStatus, NotPlayedReason, Visibility } from '../../domain';
 import type { PairingPreview, PublicTournamentView, TournamentData, WizardDraft } from './types';
 
@@ -8,6 +10,8 @@ export interface TournamentService {
   /** Stabile Referenz, solange sich nichts geändert hat (für useSyncExternalStore). */
   getAll(): TournamentData[];
   get(id: string): TournamentData | undefined;
+  /** true, solange Daten noch laden (get/getPublic liefern dann kurz undefined). */
+  isLoading?(id?: string): boolean;
   getPublic(id: string): PublicTournamentView | undefined;
 
   createTournament(draft: WizardDraft, publish: boolean): Promise<string>;

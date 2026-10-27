@@ -1,6 +1,6 @@
 // App-Rahmen: schwarze Leiste oben (Tablet, Computer), schwebende Leiste unten am Handy.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Dialog, Seg } from '../components/ui';
+import { Dialog, Notice, Seg } from '../components/ui';
 import { Icon, type IconName } from '../components/Icon';
 import { useTheme, type ThemeChoice } from '../theme';
 
@@ -19,6 +19,27 @@ export interface MoreItem {
   href?: string;
   onSelect?: () => void;
   active?: boolean;
+}
+
+/** Fehler aus Speicher-Aufrufen, die niemand abfängt (z. B. fehlende Rechte), sichtbar machen statt verschlucken. */
+function ErrorNotice() {
+  const [message, setMessage] = useState<string | null>(null);
+  useEffect(() => {
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const msg = e.reason instanceof Error ? e.reason.message : null;
+      setMessage(msg || 'Das hat nicht geklappt. Lad die Seite neu und versuch es noch einmal.');
+    };
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => window.removeEventListener('unhandledrejection', onRejection);
+  }, []);
+  if (!message) return null;
+  return (
+    <div className="error-toast" role="alert">
+      <Notice tone="warn" title="Nicht gespeichert" onClose={() => setMessage(null)}>
+        {message}
+      </Notice>
+    </div>
+  );
 }
 
 function ThemeSwitch() {
@@ -146,6 +167,8 @@ export function AppShell({
       <main className="app-main" id="inhalt">
         {children}
       </main>
+
+      <ErrorNotice />
 
       <nav className="tabbar" aria-label="Hauptmenü">
         {tabItems.map((i) => (

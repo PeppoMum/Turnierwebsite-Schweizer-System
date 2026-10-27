@@ -1,14 +1,10 @@
 // Erklärungen und Bedienteile rund um Wertung und Paarung, im Assistenten und in den Einstellungen genutzt.
 import type { PairingMode, TieBreaker } from '../../domain';
+import { BUCHHOLZ_EXPLANATION, TIE_BREAKER_LABELS } from '../../domain/scoring';
 import { Icon } from './Icon';
 import { InfoButton } from './ui';
 
-export const TIE_BREAKER_LABEL: Record<TieBreaker, string> = {
-  head_to_head: 'Direkter Vergleich',
-  goal_diff: 'Tordifferenz',
-  goals_for: 'Erzielte Tore',
-  buchholz: 'Buchholz',
-};
+export const TIE_BREAKER_LABEL: Record<TieBreaker, string> = TIE_BREAKER_LABELS;
 
 export const PAIRING_MODE_LABEL: Record<PairingMode, string> = {
   balanced: 'Ausgewogen',
@@ -19,14 +15,7 @@ export const PAIRING_MODE_LABEL: Record<PairingMode, string> = {
 export function BuchholzInfo() {
   return (
     <InfoButton title="Buchholz erklärt">
-      <p>
-        Die Buchholz-Zahl ist die Summe der Punkte deiner bisherigen Gegner. Sie bewertet dadurch indirekt, wie stark die Gegner
-        waren.
-      </p>
-      <p className="muted">
-        Freilose und nicht ausgetragene Spiele zählen dabei nicht, es gibt keinen ausgedachten Gegner. Die genaue Rechenweise für
-        dieses Turnierformat ist noch nicht endgültig festgelegt.
-      </p>
+      <p>{BUCHHOLZ_EXPLANATION}</p>
     </InfoButton>
   );
 }

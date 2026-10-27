@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { PairingMode, Visibility } from '../../../domain';
 import { uid } from '../../data/mockStore';
-import { previewNextRound, roundMinutes, wavesPerRound } from '../../data/mockLogic';
+import { previewNextRound, roundMinutes, wavesPerRound } from '../../data/logic';
 import type { TournamentData, WizardDraft } from '../../data/types';
 import { formatDateShort, formatMinutes, visibilityHelp, visibilityLabel } from '../../format';
 import { publicUrl } from '../../router';

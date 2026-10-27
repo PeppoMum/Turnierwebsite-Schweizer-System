@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { TournamentData } from '../../data/types';
-import { computeStandings } from '../../data/mockLogic';
+import { computeStandings } from '../../data/logic';
 import type { AdminTab } from '../../router';
 import { formatDateShort } from '../../format';
 import { TournamentStatusPill } from '../../components/ui';

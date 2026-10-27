@@ -8,6 +8,7 @@ import { publicUrl } from '../../router';
 import { Icon } from '../../components/Icon';
 import { Crest, EmptyState, MatchStatusPill, Notice, ShareButton, TeamName, TournamentStatusPill } from '../../components/ui';
 import { StandingsTable, type TeamInfo } from '../../components/StandingsTable';
+import { formatQuotient } from '../../../domain/scoring/format';
 
 const FAV_KEY = 'turnier-fav-';
 
@@ -298,11 +299,11 @@ function MyTeam({ ctx }: { ctx: Ctx }) {
       {row && (
         <div className="kpis">
           <div className="kpi">
-            <b>{row.eligible ? `${row.rank}.` : '–'}</b>
+            <b>{row.rank !== null ? `${row.rank}.` : '–'}</b>
             <span>Platz</span>
           </div>
           <div className="kpi">
-            <b>{row.quotient === null ? '–' : row.quotient.toLocaleString('de-DE', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}</b>
+            <b>{formatQuotient(row.points, row.played)}</b>
             <span>Quotient</span>
           </div>
           <div className="kpi">

@@ -4,7 +4,6 @@ import type {
   Field,
   Match,
   NotPlayedReason,
-  PairingDiagnostics,
   PairingMode,
   Round,
   Sponsor,
@@ -13,6 +12,8 @@ import type {
   Tournament,
   Visibility,
 } from '../../domain';
+import type { TeamStanding } from '../../domain/scoring';
+import type { PairingPreview } from '../../domain/pairing';
 
 /** Alles, was die Admin-Ansichten zu einem Turnier brauchen. */
 export interface TournamentData {
@@ -27,32 +28,11 @@ export interface TournamentData {
   assets: Record<string, string>;
 }
 
-export interface StandingRow {
-  teamId: string;
-  rank: number;
-  played: number;
-  wins: number;
-  draws: number;
-  losses: number;
-  goalsFor: number;
-  goalsAgainst: number;
-  goalDiff: number;
-  points: number;
-  /** null bei 0 Spielen, Anzeige „–“. */
-  quotient: number | null;
-  byes: number;
-  buchholz: number | null;
-  /** Zurückgezogene Teams sind nicht wertungsberechtigt. */
-  eligible: boolean;
-}
+/** Tabellenzeile aus src/domain/scoring. Rang ist null bei nicht wertungsberechtigten Teams. */
+export type StandingRow = TeamStanding;
 
-export interface PairingPreview {
-  roundNumber: number;
-  mode: 'draw' | 'swiss';
-  pairs: Array<{ teamAId: string; teamBId: string; repeat: number }>;
-  byeTeamId?: string;
-  diagnostics: PairingDiagnostics;
-}
+/** Vorschau der nächsten Runde aus src/domain/pairing. */
+export type { PairingPreview };
 
 /** Öffentliche Projektion. Im Kinderfußballmodus enthält sie keine Tore und keine Tabelle. */
 export interface PublicMatch {

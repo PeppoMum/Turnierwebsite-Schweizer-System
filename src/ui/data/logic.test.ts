@@ -1,6 +1,6 @@
 import type { Match } from '../../domain';
 import { createFixtures } from './fixtures';
-import { computeStandings, toPublicView } from './mockLogic';
+import { computeStandings, toPublicView } from './logic';
 
 function match(id: string, a: string, b: string, ga: number, gb: number): Match {
   return {

@@ -5,8 +5,10 @@ import { useService } from '../../data/context';
 import type { PairingPreview } from '../../data/types';
 import { useNow } from '../../hooks';
 import { formatMinutes, formatQuotient, formatTime } from '../../format';
+import { formatQuotient as formatRatioQ } from '../../../domain/scoring/format';
 import { href, publicUrl } from '../../router';
-import { computeStandings } from '../../data/mockLogic';
+import { computeStandings } from '../../data/logic';
+import { zonedLocalToISO } from '../../../domain/schedule';
 import { Icon } from '../../components/Icon';
 import { CopyButton, Dialog, EmptyState, Kpi, Notice, Seg, TeamName } from '../../components/ui';
 import { MatchCard } from './MatchCard';
@@ -277,23 +279,29 @@ function RoundPreviewDialog({
   const t = ctx.data.tournament;
   const standings = useMemo(() => computeStandings(ctx.data), [ctx.data]);
   const q = new Map(standings.map((r) => [r.teamId, r]));
+  const fmtQ = (r?: { points: number; played: number }) => (r ? formatRatioQ(r.points, r.played) : '–');
   const [time, setTime] = useState(() => {
     const lastEnd = ctx.data.matches
       .filter((m) => m.startISO)
       .reduce((max, m) => Math.max(max, new Date(m.startISO!).getTime() + m.durationMinutes * 60000), 0);
     const suggested = new Date(Math.max(lastEnd + t.schedule.roundBreakMinutes * 60000, Date.now() + 5 * 60000));
-    return `${String(suggested.getHours()).padStart(2, '0')}:${String(suggested.getMinutes()).padStart(2, '0')}`;
+    return formatTime(suggested.toISOString(), t.timeZone);
   });
   const [busy, setBusy] = useState(false);
   const d = preview.diagnostics;
 
+  const [error, setError] = useState<string | null>(null);
   const publish = async () => {
     setBusy(true);
-    const [h, m] = time.split(':').map(Number);
-    const start = new Date();
-    start.setHours(h ?? 0, m ?? 0, 0, 0);
-    await service.publishRound(t.id, preview, start.toISOString());
-    onClose();
+    setError(null);
+    try {
+      // Anstoß in Ortszeit des Turniers, nicht des Geräts.
+      await service.publishRound(t.id, preview, zonedLocalToISO(t.localDate, time, t.timeZone));
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Die Runde ließ sich nicht veröffentlichen.');
+      setBusy(false);
+    }
   };
 
   return (
@@ -314,11 +322,11 @@ function RoundPreviewDialog({
             <span className="grow" style={{ display: 'grid', gap: 4 }}>
               <span className="row" style={{ flexWrap: 'nowrap', justifyContent: 'space-between' }}>
                 <TeamName name={ctx.teamName(p.teamAId)} logo={ctx.teamLogo(p.teamAId)} />
-                <span className="small-text">{formatQuotient(q.get(p.teamAId)?.quotient ?? null)}</span>
+                <span className="small-text">{fmtQ(q.get(p.teamAId))}</span>
               </span>
               <span className="row" style={{ flexWrap: 'nowrap', justifyContent: 'space-between' }}>
                 <TeamName name={ctx.teamName(p.teamBId)} logo={ctx.teamLogo(p.teamBId)} />
-                <span className="small-text">{formatQuotient(q.get(p.teamBId)?.quotient ?? null)}</span>
+                <span className="small-text">{fmtQ(q.get(p.teamBId))}</span>
               </span>
             </span>
             {p.repeat > 0 && <span className="pill y">{p.repeat + 1}. Duell</span>}
@@ -335,6 +343,7 @@ function RoundPreviewDialog({
         <span className="label">Anstoß</span>
         <input className="input" type="time" aria-label="Anstoß der Runde" value={time} onChange={(e) => setTime(e.target.value)} style={{ width: 130 }} />
       </div>
+      {error && <Notice tone="warn" title="Nicht veröffentlicht">{error}</Notice>}
       <span className="small-text">Erst mit „Runde veröffentlichen“ sehen Zuschauer die Paarungen. Danach ändern sie sich nicht mehr von selbst.</span>
       <div className="row">
         <button type="button" className="btn pri" disabled={busy} onClick={publish}>

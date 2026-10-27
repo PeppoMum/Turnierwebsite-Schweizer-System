@@ -1,7 +1,7 @@
 import './styles/tokens.css';
 import './styles/app.css';
 import { useEffect } from 'react';
-import { ServiceProvider, usePublicTournament, useTournament } from './data/context';
+import { ServiceProvider, useLoading, usePublicTournament, useTournament } from './data/context';
 import type { TournamentService } from './data/service';
 import { href, publicUrl, useRoute, type AdminTab, type PublicTab } from './router';
 import { AppShell, type MoreItem, type NavItem } from './shell/AppShell';
@@ -71,8 +71,17 @@ const ADMIN_NAV: Array<{ tab: AdminTab; label: string; icon: NavItem['icon'] }> 
   { tab: 'einstellungen', label: 'Einstellungen', icon: 'settings' },
 ];
 
+function Loading() {
+  return (
+    <div className="page" aria-busy="true">
+      <span className="muted">Lädt …</span>
+    </div>
+  );
+}
+
 function AdminRoute({ id, tab }: { id: string; tab: AdminTab }) {
   const data = useTournament(id);
+  const loading = useLoading(id);
   const more: MoreItem[] = [
     { key: 'public', label: 'Öffentliche Seite', icon: 'eye', href: href({ name: 'public', id, tab: 'aktuell' }) },
     { key: 'list', label: 'Alle Turniere', icon: 'trophy', href: href({ name: 'dashboard' }) },
@@ -92,6 +101,8 @@ function AdminRoute({ id, tab }: { id: string; tab: AdminTab }) {
     >
       {data ? (
         <AdminTournament data={data} tab={tab} />
+      ) : loading ? (
+        <Loading />
       ) : (
         <div className="page">
           <h1 className="page-title">Turnier nicht gefunden</h1>
@@ -104,6 +115,7 @@ function AdminRoute({ id, tab }: { id: string; tab: AdminTab }) {
 
 function PublicRoute({ id, tab }: { id: string; tab: PublicTab }) {
   const view = usePublicTournament(id);
+  const loading = useLoading(id);
   const showTable = view?.tournament.visibility === 'full';
   const nav: Array<{ tab: PublicTab; label: string; icon: NavItem['icon'] }> = [
     { tab: 'aktuell', label: 'Aktuell', icon: 'live' },
@@ -134,6 +146,8 @@ function PublicRoute({ id, tab }: { id: string; tab: PublicTab }) {
     >
       {view ? (
         <PublicTournament view={view} tab={tab === 'tabelle' && !showTable ? 'aktuell' : tab} />
+      ) : loading ? (
+        <Loading />
       ) : (
         <div className="page">
           <h1 className="page-title">Turnier nicht gefunden</h1>

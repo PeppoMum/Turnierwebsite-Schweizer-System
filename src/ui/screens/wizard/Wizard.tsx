@@ -79,8 +79,13 @@ export function Wizard() {
       return;
     }
     setSaving(true);
-    const id = await service.createTournament(draft, publish);
-    navigate({ name: 'admin', id, tab: 'live' });
+    try {
+      const id = await service.createTournament(draft, publish);
+      navigate({ name: 'admin', id, tab: 'live' });
+    } catch (e) {
+      setSaving(false);
+      throw e;
+    }
   };
 
   const stepProps = { draft, update, errors };

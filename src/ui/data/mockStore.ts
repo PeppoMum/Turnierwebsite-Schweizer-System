@@ -1,7 +1,8 @@
 // Beispiel-Datenhaltung im Browser (localStorage), bis Firestore angebunden ist.
 import type { Match, Round, Team } from '../../domain';
 import { createFixtures } from './fixtures';
-import { activeTeams, planWaves, previewNextRound, toPublicView } from './mockLogic';
+import { createWaveSchedule, zonedLocalToISO } from '../../domain/schedule';
+import { previewNextRound, toPublicView } from './logic';
 import type { TournamentService } from './service';
 import type { PublicTournamentView, TournamentData, WizardDraft } from './types';
 
@@ -15,9 +16,9 @@ function nowISO(): string {
   return new Date().toISOString();
 }
 
-export function localStartISO(localDate: string, time: string): string {
-  // Lokale Zeit des Browsers; die echte Zeitzonen-Umrechnung übernimmt später die Zeitplanung.
-  return new Date(`${localDate}T${time || '09:00'}:00`).toISOString();
+/** Ortszeit des Turniers (z. B. 10:00 in Europe/Berlin) als Zeitpunkt, unabhängig von der Zeitzone des Geräts. */
+export function localStartISO(localDate: string, time: string, timeZone: string): string {
+  return zonedLocalToISO(localDate, time || '09:00', timeZone);
 }
 
 export class MockTournamentStore implements TournamentService {
@@ -119,7 +120,7 @@ export class MockTournamentStore implements TournamentService {
         seed: i + 1,
         logoAssetId: asset(t.logo),
       }));
-    const startISO = localStartISO(draft.localDate, draft.startTime);
+    const startISO = localStartISO(draft.localDate, draft.startTime, draft.timeZone);
     const tieBreakers = draft.tieBreakers.filter((tb) => tb !== 'buchholz' || draft.buchholzEnabled);
     const data: TournamentData = {
       tournament: {
@@ -278,20 +279,35 @@ export class MockTournamentStore implements TournamentService {
     this.mutate(tid, (d) => {
       const roundId = `${tid}-r${preview.roundNumber}`;
       const now = nowISO();
-      const slots = planWaves(
-        preview.pairs.length,
-        d.fields.filter((f) => f.active).map((f) => f.id),
-        startISO,
-        d.tournament.schedule.matchMinutes,
-        d.tournament.schedule.turnoverMinutes,
-        d.tournament.schedule.allocation,
+      const s = d.tournament.schedule;
+      // Letztes Spielende je Team, damit die Planung Pausen über die Rundengrenze hinweg berücksichtigt.
+      const teamLastEndISO: Record<string, string> = {};
+      for (const m of d.matches) {
+        if (!m.startISO || m.status === 'not_played' || m.status === 'cancelled') continue;
+        const end = new Date(new Date(m.startISO).getTime() + m.durationMinutes * 60000).toISOString();
+        for (const id of [m.teamAId, m.teamBId]) if (!teamLastEndISO[id] || teamLastEndISO[id]! < end) teamLastEndISO[id] = end;
+      }
+      const plan = createWaveSchedule(
+        [{ roundNumber: preview.roundNumber, startISO, matches: preview.pairs.map((p, i) => ({ id: `${roundId}-m${i + 1}`, teamAId: p.teamAId, teamBId: p.teamBId })) }],
+        d.fields,
+        {
+          tournamentStartISO: s.tournamentStartISO,
+          matchMinutes: s.matchMinutes,
+          turnoverMinutes: s.turnoverMinutes,
+          roundBreakMinutes: s.roundBreakMinutes,
+          optionalHardRestMinutes: s.optionalHardRestMinutes,
+          allocation: s.allocation,
+        },
+        { teamLastEndISO, teamNames: new Map(d.teams.map((t) => [t.id, t.name])) },
       );
+      if (plan.problems.length > 0) throw new Error(plan.problems.join(' '));
+      const slot = new Map(plan.matches.map((m) => [m.matchId, m]));
       const round: Round = {
         id: roundId,
         number: preview.roundNumber,
         status: 'published',
         mode: preview.mode,
-        plannedStartISO: startISO,
+        plannedStartISO: plan.rounds[0]?.startISO ?? startISO,
         generatedFromRevision: d.tournament.revision,
         publishedAt: now,
         frozenPairings: true,
@@ -299,17 +315,18 @@ export class MockTournamentStore implements TournamentService {
       };
       d.rounds.push(round);
       preview.pairs.forEach((p, i) => {
-        const s = slots[i]!;
+        const id = `${roundId}-m${i + 1}`;
+        const sm = slot.get(id);
         d.matches.push({
-          id: `${roundId}-m${i + 1}`,
+          id,
           roundId,
           roundNumber: preview.roundNumber,
           teamAId: p.teamAId,
           teamBId: p.teamBId,
-          fieldId: s.fieldId,
-          waveIndex: s.waveIndex,
-          startISO: s.startISO,
-          durationMinutes: d.tournament.schedule.matchMinutes,
+          fieldId: sm?.fieldId,
+          waveIndex: sm?.waveIndex,
+          startISO: sm?.startISO,
+          durationMinutes: s.matchMinutes,
           status: 'scheduled',
           revision: 1,
           createdAt: now,
@@ -392,6 +409,3 @@ export class MockTournamentStore implements TournamentService {
   }
 }
 
-export function countActive(d: TournamentData): number {
-  return activeTeams(d.teams).length;
-}

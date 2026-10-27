@@ -34,3 +34,8 @@ export function usePublicTournament(id: string) {
   const s = useService();
   return useSyncExternalStore(s.subscribe, () => s.getPublic(id));
 }
+
+export function useLoading(id?: string): boolean {
+  const s = useService();
+  return useSyncExternalStore(s.subscribe, () => s.isLoading?.(id) ?? false);
+}

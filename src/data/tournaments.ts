@@ -8,7 +8,7 @@ import {
   type Firestore,
   type UpdateData,
 } from 'firebase/firestore';
-import type { Visibility } from '../domain';
+import type { TournamentStatus, Visibility } from '../domain';
 import { clean, writeAudit, type Actor } from './audit';
 import { DataError, RevisionConflictError, notFound, toDataError } from './errors';
 import { toTournament } from './mappers';
@@ -53,11 +53,16 @@ export async function createTournament(
   db: Firestore,
   actor: Actor,
   input: NewTournamentInput,
+  options: { tournamentId?: string } = {},
 ): Promise<string> {
   if (!input.title.trim()) {
     throw new DataError('invalid_input', 'Bitte gib dem Turnier einen Namen.');
   }
-  const tournamentRef = doc(paths.tournaments(db));
+  // Eine vorab vergebene ID erlaubt Link und QR-Code schon im Assistenten. Die Regeln
+  // lassen das Anlegen nur zu, wenn es das Turnier noch nicht gibt.
+  const tournamentRef = options.tournamentId
+    ? paths.tournament(db, options.tournamentId)
+    : doc(paths.tournaments(db));
   const tid = tournamentRef.id;
   const batch = writeBatch(db);
   batch.set(
@@ -143,6 +148,66 @@ export async function updateTournamentConfig(
       } as UpdateData<TournamentDoc>);
       return current.revision + 1;
     });
+  } catch (err) {
+    throw toDataError(err);
+  }
+}
+
+/**
+ * Turnierstatus ändern (veröffentlicht, läuft, beendet, archiviert) und die öffentliche
+ * Projektion nachziehen. `finished` schließt alle freigegebenen Runden.
+ */
+export async function setTournamentStatus(
+  db: Firestore,
+  actor: Actor,
+  tid: string,
+  expectedRevision: number,
+  status: TournamentStatus,
+): Promise<number> {
+  try {
+    const rounds = status === 'finished' ? await getDocs(paths.rounds(db, tid)) : null;
+    const revision = await runTransaction(db, async (tx) => {
+      const ref = paths.tournament(db, tid);
+      const pubRef = paths.publicTournament(db, tid);
+      const [snap, pubSnap] = await Promise.all([tx.get(ref), tx.get(pubRef)]);
+      if (!snap.exists()) throw notFound('Das Turnier');
+      const current = snap.data();
+      if (current.revision !== expectedRevision) {
+        throw new RevisionConflictError(
+          expectedRevision,
+          current.revision,
+          toTournament(tid, current),
+          'Das Turnier',
+        );
+      }
+      if (pubSnap.exists()) tx.update(pubRef, { status, updatedAt: serverTimestamp() });
+      writeAudit(db, tx, tid, actor, {
+        action: `tournament.status.${status}`,
+        targetType: 'tournament',
+        targetId: tid,
+        before: { status: current.status },
+        after: { status },
+      });
+      const update: UpdateData<TournamentDoc> = {
+        status,
+        revision: current.revision + 1,
+        updatedAt: serverTimestamp(),
+      };
+      if (status === 'published' && !current.publishedAt) update.publishedAt = serverTimestamp();
+      if (status === 'finished') update.finishedAt = serverTimestamp();
+      tx.update(ref, update);
+      for (const r of rounds?.docs ?? []) {
+        if (r.data().status !== 'published' && r.data().status !== 'active') continue;
+        tx.update(r.ref, { status: 'closed', closedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        tx.set(
+          paths.publicRound(db, tid, r.id),
+          { status: 'closed', updatedAt: serverTimestamp() },
+          { merge: true },
+        );
+      }
+      return current.revision + 1;
+    });
+    return revision;
   } catch (err) {
     throw toDataError(err);
   }

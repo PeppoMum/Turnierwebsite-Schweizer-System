@@ -264,12 +264,8 @@ export function markMatchNotPlayed(
       if (m.status === 'draft' || m.status === 'cancelled') {
         throw new DataError('invalid_state', 'Dieses Spiel kann nicht als „nicht ausgetragen“ markiert werden.');
       }
-      if (m.status === 'completed') {
-        throw new DataError(
-          'invalid_state',
-          'Das Spiel ist bereits beendet. Öffne es zuerst zur Korrektur.',
-        );
-      }
+      // Beendete Spiele nachträglich als „nicht ausgetragen“ markieren dürfen nur Owner und
+      // erweiterte Helfer (Regeln).
       return {
         status: 'not_played',
         goalsA: null,
@@ -306,6 +302,32 @@ export function reopenMatchForCorrection(
       if (m.status === 'completed') return { status: 'live', completedAt: null };
       if (m.status === 'not_played') return { status: 'scheduled', notPlayedReason: null };
       throw new DataError('invalid_state', 'Nur beendete oder nicht ausgetragene Spiele können geöffnet werden.');
+    },
+    options,
+  );
+}
+
+/** Zurück auf „geplant“ (z. B. versehentlich angepfiffen): Stand wird verworfen. */
+export function resetMatchToScheduled(
+  db: Firestore,
+  actor: Actor,
+  tid: string,
+  matchId: string,
+  expectedRevision: number,
+  options?: MatchWriteOptions,
+) {
+  return mutateMatch(
+    db,
+    actor,
+    tid,
+    matchId,
+    expectedRevision,
+    'match.reset',
+    (m) => {
+      if (m.status !== 'live' && m.status !== 'completed' && m.status !== 'not_played') {
+        throw new DataError('invalid_state', 'Dieses Spiel ist bereits geplant oder nicht freigegeben.');
+      }
+      return { status: 'scheduled', goalsA: null, goalsB: null, notPlayedReason: null, completedAt: null };
     },
     options,
   );

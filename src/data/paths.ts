@@ -50,6 +50,8 @@ export const paths = {
   tournaments: (db: Firestore) => col<TournamentDoc>(db, 'tournaments'),
   tournament: (db: Firestore, tid: string) => ref<TournamentDoc>(db, `tournaments/${tid}`),
   teams: (db: Firestore, tid: string) => col<TeamDoc>(db, `tournaments/${tid}/teams`),
+  team: (db: Firestore, tid: string, teamId: string) =>
+    ref<TeamDoc>(db, `tournaments/${tid}/teams/${teamId}`),
   fields: (db: Firestore, tid: string) => col<FieldDoc>(db, `tournaments/${tid}/fields`),
   sponsors: (db: Firestore, tid: string) => col<SponsorDoc>(db, `tournaments/${tid}/sponsors`),
   byes: (db: Firestore, tid: string) => col<ByeDoc>(db, `tournaments/${tid}/byes`),

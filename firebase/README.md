@@ -153,6 +153,7 @@ npm run test:rules             # Regel- und Integrationstests (startet den Emula
 
 - Tabellenberechnung (inkl. Rückzugsregel) kommt aus `src/domain`; die Datenschicht nimmt die fertigen
   Zeilen entgegen (`standingsAfter`, `setVisibility(..., { standings })`, `publishStandings`).
-- Zeitverschiebung, Rückzug und Neuplanung schreiben über dieselben Bausteine (Revision + Audit);
+- Neuplanung einzelner Paarungen nach einem Rückzug (§9) ist noch nicht gebaut; Rückzug
+  (`withdrawTeam`), Zeitverschiebung (`shiftFutureMatches`) und Statuswechsel sind da.
   Audit-Einträge für Sammeländerungen nutzen `targetType: 'tournament'` oder `'round'`.
 - Grenze von 500 Schreibvorgängen je Transaktion: `setVisibility` reicht bis ca. 450 Spiele je Turnier.

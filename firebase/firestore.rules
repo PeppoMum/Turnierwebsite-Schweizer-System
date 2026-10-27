@@ -298,6 +298,7 @@ service cloud.firestore {
           // Korrektur bereits entschiedener Spiele nur durch erweiterte Helfer.
           || (isExtendedHelper(tid) && [from, to] in [
             ['completed', 'completed'], ['completed', 'live'], ['completed', 'scheduled'],
+            ['completed', 'not_played'],
             ['not_played', 'not_played'], ['not_played', 'scheduled']
           ]);
       }

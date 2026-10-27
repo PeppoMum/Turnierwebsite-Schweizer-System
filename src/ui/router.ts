@@ -9,10 +9,10 @@ export type Route =
   | { name: 'invite'; tid: string; inviteId: string }
   | { name: 'notFound' };
 
-export type AdminTab = 'live' | 'spielplan' | 'tabelle' | 'teams' | 'einstellungen';
+export type AdminTab = 'live' | 'spielplan' | 'tabelle' | 'teams' | 'einstellungen' | 'verlauf';
 export type PublicTab = 'aktuell' | 'spielplan' | 'team' | 'tabelle';
 
-const ADMIN_TABS: AdminTab[] = ['live', 'spielplan', 'tabelle', 'teams', 'einstellungen'];
+const ADMIN_TABS: AdminTab[] = ['live', 'spielplan', 'tabelle', 'teams', 'einstellungen', 'verlauf'];
 const PUBLIC_TABS: PublicTab[] = ['aktuell', 'spielplan', 'team', 'tabelle'];
 
 export function parseHash(hash: string): Route {

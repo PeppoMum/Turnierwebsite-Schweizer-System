@@ -111,6 +111,7 @@ function AdminRoute({ id, tab, accountItems }: { id: string; tab: AdminTab; acco
   const loading = useLoading(id);
   const more: MoreItem[] = [
     { key: 'public', label: 'Öffentliche Seite', icon: 'eye', href: href({ name: 'public', id, tab: 'aktuell' }) },
+    { key: 'verlauf', label: 'Verlauf', icon: 'clock', href: href({ name: 'admin', id, tab: 'verlauf' }), active: tab === 'verlauf' },
     { key: 'list', label: 'Alle Turniere', icon: 'trophy', href: href({ name: 'dashboard' }) },
     ...accountItems,
   ];

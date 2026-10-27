@@ -1,6 +1,7 @@
 import { createFixtures } from './fixtures';
 import { MockTournamentStore } from './mockStore';
 import { detailsOf, validateDetails } from './details';
+import { describeHistory } from './history';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
 
@@ -95,5 +96,20 @@ describe('Änderungsverlauf', () => {
     const h = await s.loadHistory('herbstcup');
     expect(h.map((e) => e.action)).toEqual(['team.add', 'match.result.final', 'match.result.live']);
     expect(h[2]).toMatchObject({ targetId: m.id, before: { goalsA: 1, goalsB: 0 }, after: { goalsA: 2, goalsB: 0 } });
+
+    await s.recordScore('herbstcup', m.id, 3, 0);
+    await s.updateDetails('herbstcup', { ...detailsOf(s.get('herbstcup')!), title: 'Neu' });
+    const d = s.get('herbstcup')!;
+    const name = (id: string) => d.teams.find((t) => t.id === id)!.name;
+    const lines = describeHistory(await s.loadHistory('herbstcup'), d, 'local');
+    expect(lines.map((l) => l.text)).toEqual([
+      'Turnierdaten geändert: Name „Herbstcup 2026“ → „Neu“',
+      `Ergebnis korrigiert: ${name(m.teamAId)} – ${name(m.teamBId)} (Runde 2) 3:0 (vorher 2:0)`,
+      'Mannschaft nachgemeldet: Spätstarter',
+      `Endstand: ${name(m.teamAId)} – ${name(m.teamBId)} (Runde 2) 2:0`,
+      `Zwischenstand: ${name(m.teamAId)} – ${name(m.teamBId)} (Runde 2) 2:0`,
+    ]);
+    expect(lines.every((l) => l.who === 'Du')).toBe(true);
+    expect(lines.filter((l) => l.isResult)).toHaveLength(3);
   });
 });

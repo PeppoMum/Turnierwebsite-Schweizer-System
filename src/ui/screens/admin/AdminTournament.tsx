@@ -9,6 +9,7 @@ import { LiveTab } from './LiveTab';
 import { ScheduleTab } from './ScheduleTab';
 import { TeamsTab } from './TeamsTab';
 import { SettingsTab } from './SettingsTab';
+import { HistoryTab } from './HistoryTab';
 
 export interface AdminCtx {
   data: TournamentData;
@@ -40,6 +41,7 @@ const TAB_TITLE: Record<AdminTab, string> = {
   tabelle: 'Tabelle',
   teams: 'Teams',
   einstellungen: 'Einstellungen',
+  verlauf: 'Verlauf',
 };
 
 export function AdminTournament({ data, tab }: { data: TournamentData; tab: AdminTab }) {
@@ -61,6 +63,7 @@ export function AdminTournament({ data, tab }: { data: TournamentData; tab: Admi
       {tab === 'tabelle' && <StandingsSection ctx={ctx} />}
       {tab === 'teams' && <TeamsTab ctx={ctx} />}
       {tab === 'einstellungen' && <SettingsTab ctx={ctx} />}
+      {tab === 'verlauf' && <HistoryTab ctx={ctx} />}
     </div>
   );
 }

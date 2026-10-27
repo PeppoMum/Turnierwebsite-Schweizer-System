@@ -1,0 +1,31 @@
+// Schnittstelle zwischen Oberfläche und Datenhaltung. Heute steckt eine Beispiel-Implementierung im Browser dahinter
+// (mockStore.ts), später Firestore. Alle schreibenden Aufrufe sind asynchron, damit sich am UI nichts ändern muss.
+import type { MatchStatus, NotPlayedReason, Visibility } from '../../domain';
+import type { PairingPreview, PublicTournamentView, TournamentData, WizardDraft } from './types';
+
+export interface TournamentService {
+  subscribe(listener: () => void): () => void;
+  /** Stabile Referenz, solange sich nichts geändert hat (für useSyncExternalStore). */
+  getAll(): TournamentData[];
+  get(id: string): TournamentData | undefined;
+  getPublic(id: string): PublicTournamentView | undefined;
+
+  createTournament(draft: WizardDraft, publish: boolean): Promise<string>;
+  duplicateTournament(id: string): Promise<string>;
+  setArchived(id: string, archived: boolean): Promise<void>;
+  setVisibility(id: string, visibility: Visibility): Promise<void>;
+
+  recordScore(tid: string, matchId: string, goalsA: number, goalsB: number): Promise<void>;
+  setMatchStatus(tid: string, matchId: string, status: Extract<MatchStatus, 'scheduled' | 'live' | 'completed'>): Promise<void>;
+  markNotPlayed(tid: string, matchId: string, reason: NotPlayedReason): Promise<void>;
+  reopenMatch(tid: string, matchId: string): Promise<void>;
+
+  previewNextRound(tid: string, seed?: number): PairingPreview;
+  publishRound(tid: string, preview: PairingPreview, startISO: string): Promise<void>;
+  closeCurrentRound(tid: string): Promise<void>;
+  shiftFutureMatches(tid: string, deltaMinutes: number): Promise<number>;
+
+  withdrawTeam(tid: string, teamId: string): Promise<void>;
+  restoreTeam(tid: string, teamId: string): Promise<void>;
+  finishTournament(tid: string): Promise<void>;
+}

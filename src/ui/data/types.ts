@@ -93,4 +93,33 @@ export interface WizardDraft {
   visibility: Visibility;
 }
 
+/** Stammdaten, die nach dem Anlegen änderbar sind. Bilder als Data-URL, undefined = kein Bild. */
+export interface TournamentDetails {
+  title: string;
+  organizerName: string;
+  venue: string;
+  localDate: string;
+  organizerLogo?: string;
+  eventLogo?: string;
+  sponsors: Array<{ id: string; name: string; url: string; logo?: string }>;
+}
+
+/** Name und Logo einer Mannschaft (neu oder bestehend). */
+export interface TeamEdit {
+  name: string;
+  logo?: string;
+}
+
+/** Ein Eintrag im Änderungsverlauf (Audit). */
+export interface HistoryEntry {
+  id: string;
+  atISO: string;
+  actorUid: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  before?: unknown;
+  after?: unknown;
+}
+
 export type { NotPlayedReason };

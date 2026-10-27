@@ -10,7 +10,10 @@ import {
   DataError,
   closeRound,
   createTournament,
+  deleteAsset,
+  loadAudit,
   markMatchNotPlayed,
+  publishStandings,
   paths,
   publishRound as publishRoundData,
   recordResult,
@@ -42,6 +45,7 @@ import {
   toMatch,
   updateTournamentConfig,
   withdrawTeam as withdrawTeamData,
+  writeAudit,
   type ActorSource,
   type AssetDoc,
   type AssetKind,
@@ -58,9 +62,18 @@ import {
   type WithId,
 } from '../../data';
 import { iso } from '../../data/mappers';
+import { assertDetails, checkedTeamName, movedStartISO, nextTeamId } from './details';
 import { computeStandings, previewNextRound } from './logic';
 import type { TournamentService } from './service';
-import type { PairingPreview, PublicTournamentView, TournamentData, WizardDraft } from './types';
+import type {
+  HistoryEntry,
+  PairingPreview,
+  PublicTournamentView,
+  TeamEdit,
+  TournamentData,
+  TournamentDetails,
+  WizardDraft,
+} from './types';
 
 type Loaded<T> = { value: T; loaded: boolean };
 const empty = <T>(value: T): Loaded<T> => ({ value, loaded: false });
@@ -819,6 +832,115 @@ export class FirestoreTournamentStore implements TournamentService {
   async finishTournament(tid: string): Promise<void> {
     const t = this.data(tid).tournament;
     await setTournamentStatus(this.db, this.actor(), tid, t.revision, 'finished');
+  }
+
+  /** Bild behalten, wenn es sich nicht geändert hat, sonst als neues Asset speichern. */
+  private async keepOrSaveAsset(d: TournamentData, assetId: string | undefined, next: string | undefined, kind: AssetKind) {
+    if (!next) return undefined;
+    if (assetId && d.assets[assetId] === next) return assetId;
+    return saveAsset(this.db, d.tournament.id, await toPreparedAsset(next), kind, { isPublic: true });
+  }
+
+  /** Öffentliche Projektion nachziehen, sobald das Turnier öffentlich ist. */
+  private async syncPublicIfShown(tid: string, status: TournamentData['tournament']['status']): Promise<void> {
+    if (status !== 'draft') await syncPublicTournament(this.db, tid, { isPublic: true });
+  }
+
+  async updateDetails(tid: string, details: TournamentDetails): Promise<void> {
+    const d = this.data(tid);
+    const actor = this.actor();
+    assertDetails(d, details);
+    const t = d.tournament;
+    const organizerAssetId = await this.keepOrSaveAsset(d, t.organizerAssetId, details.organizerLogo, 'organizer');
+    const eventAssetId = await this.keepOrSaveAsset(d, t.eventAssetId, details.eventLogo, 'event');
+    const oldSponsors = new Map(d.sponsors.map((s) => [s.id, s]));
+    const sponsors: Sponsor[] = [];
+    for (const [i, s] of details.sponsors.entries()) {
+      const prev = oldSponsors.get(s.id);
+      const assetId = await this.keepOrSaveAsset(d, prev?.assetId, s.logo, 'sponsor');
+      sponsors.push({
+        id: prev ? s.id : doc(paths.sponsors(this.db, tid)).id,
+        name: s.name.trim(),
+        order: i,
+        ...(s.url.trim() ? { url: s.url.trim() } : {}),
+        ...(assetId ? { assetId } : {}),
+      });
+    }
+    const keptSponsorIds = new Set(sponsors.map((s) => s.id));
+    const batch = writeBatch(this.db);
+    for (const id of oldSponsors.keys()) if (!keptSponsorIds.has(id)) batch.delete(doc(paths.sponsors(this.db, tid), id));
+    for (const { id, ...s } of sponsors) batch.set(doc(paths.sponsors(this.db, tid), id), s);
+    await batch.commit();
+
+    const startISO = movedStartISO(d, details.localDate);
+    // null statt Löschen, damit derselbe Patch auch im Audit-Eintrag stehen kann.
+    await updateTournamentConfig(this.db, actor, tid, t.revision, {
+      title: details.title.trim(),
+      organizerName: details.organizerName.trim(),
+      venue: (details.venue.trim() || null) as never,
+      localDate: details.localDate,
+      organizerAssetId: (organizerAssetId ?? null) as never,
+      eventAssetId: (eventAssetId ?? null) as never,
+      ...(startISO ? { schedule: { ...t.schedule, tournamentStartISO: startISO } } : {}),
+    });
+    await this.syncPublicIfShown(tid, t.status);
+
+    // Nicht mehr benutzte Bilder freigeben (höchstens 50 pro Turnier).
+    const used = new Set([organizerAssetId, eventAssetId, ...sponsors.map((s) => s.assetId)]);
+    const dropped = [t.organizerAssetId, t.eventAssetId, ...d.sponsors.map((s) => s.assetId)].filter(
+      (id): id is string => !!id && !used.has(id),
+    );
+    await Promise.all(dropped.map((id) => deleteAsset(this.db, tid, id).catch(() => undefined)));
+  }
+
+  async saveTeam(tid: string, teamId: string | null, team: TeamEdit): Promise<void> {
+    const d = this.data(tid);
+    const actor = this.actor();
+    const name = checkedTeamName(d, teamId, team);
+    const existing = teamId ? d.teams.find((t) => t.id === teamId) : undefined;
+    const logoAssetId = await this.keepOrSaveAsset(d, existing?.logoAssetId, team.logo, 'team');
+    const id = teamId ?? nextTeamId(d);
+    const next: Team = existing
+      ? { ...existing, name }
+      : { id, tournamentId: tid, name, status: 'active', joinedAt: new Date().toISOString(), seed: d.teams.length + 1 };
+    if (logoAssetId) next.logoAssetId = logoAssetId;
+    else delete next.logoAssetId;
+
+    const batch = writeBatch(this.db);
+    const { id: _id, ...teamDoc } = next;
+    void _id;
+    batch.set(paths.team(this.db, tid, id), teamDoc);
+    writeAudit(this.db, batch, tid, actor, {
+      action: existing ? 'team.update' : 'team.add',
+      targetType: 'team',
+      targetId: id,
+      before: existing ? { name: existing.name } : undefined,
+      after: { teamId: id, name },
+    });
+    await batch.commit();
+    await this.syncPublicIfShown(tid, d.tournament.status);
+    // Neue Mannschaft erscheint sofort mit 0 Spielen in der öffentlichen Tabelle.
+    if (!existing && d.tournament.status !== 'draft' && d.tournament.visibility === 'full') {
+      const after = { ...d, teams: [...d.teams, next] };
+      await publishStandings(this.db, tid, computeStandings(after), d.tournament.currentRound, d.resultsRevision).catch(() => undefined);
+    }
+    if (existing?.logoAssetId && existing.logoAssetId !== logoAssetId) {
+      await deleteAsset(this.db, tid, existing.logoAssetId).catch(() => undefined);
+    }
+  }
+
+  async loadHistory(tid: string): Promise<HistoryEntry[]> {
+    const entries = await loadAudit(this.db, tid);
+    return entries.map((e) => ({
+      id: e.id,
+      atISO: e.atISO,
+      actorUid: e.actorUid,
+      action: e.action,
+      targetType: e.targetType,
+      targetId: e.targetId,
+      before: e.before ?? undefined,
+      after: e.after ?? undefined,
+    }));
   }
 
   /** Alle Abos beenden (z. B. beim Abmelden oder in Tests). */

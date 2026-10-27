@@ -37,6 +37,10 @@ export function waveSizes(
 
 /** Gewicht je fehlender Pausenminute (quadratisch) für das weiche Ziel. */
 const SOFT_REST_WEIGHT = 1;
+/** Gewicht je Minute Abweichung (quadratisch) von der für die Runde typischen Pause. */
+const EVEN_REST_WEIGHT = 1;
+/** Gewicht (je Welle Abstand², in Wellenlängen²) für die Paarungsreihenfolge beim Angleichen. */
+const RANK_ORDER_WEIGHT = 0.1;
 /** Gewicht je fehlender Minute zur harten Mindestpause; dominiert alles andere. */
 const HARD_REST_WEIGHT = 1_000_000;
 
@@ -50,7 +54,8 @@ export interface CreateScheduleOptions {
 /**
  * Verteilt gepaarte Runden auf Wellen und Felder (§8). Die Paarungen bleiben unverändert;
  * optimiert wird nur, welches Spiel in welcher Welle liegt: Pro Runde wird exakt (Ungarische
- * Methode) die Zuordnung gesucht, die zu kurze Pausen am wenigsten verletzt. Eine harte
+ * Methode) die Zuordnung gesucht, die zu kurze Pausen am wenigsten verletzt und – sofern
+ * `evenRest` nicht abgeschaltet ist – die Pausen aller Teams möglichst angleicht. Eine harte
  * Mindestpause wird notfalls durch Verschieben des Rundenstarts eingehalten und gemeldet.
  */
 export function createWaveSchedule(
@@ -92,6 +97,21 @@ export function createWaveSchedule(
       const end = lastEnd.get(teamId);
       return end === undefined ? Infinity : minutesBetween(end, addMinutes(roundStart, w * waveStep));
     };
+    // Gleichmäßige Pausen: Die Summe aller Pausen hängt kaum von der Zuordnung ab, also senkt
+    // eine quadratische Abweichung vom typischen Wert (Median bei mittlerer Welle) die Streuung.
+    // Längere Pausen als eine ganze Runde (z. B. nach einem Freilos) zählen nicht weiter.
+    let evenTarget: number | undefined;
+    const evenCap = sizes.length * waveStep;
+    if (constraints.evenRest !== false && sizes.length > 1) {
+      const meanWave = slots.reduce((a, w) => a + w, 0) / Math.max(1, slots.length);
+      const typical = round.matches
+        .flatMap((m) => [m.teamAId, m.teamBId])
+        .filter((t) => lastEnd.has(t))
+        .map((t) => rest(t, meanWave, start))
+        .sort((a, b) => a - b);
+      if (typical.length > 0) evenTarget = typical[Math.floor(typical.length / 2)];
+    }
+
     const slotCost = (matchIdx: number, slotIdx: number): number => {
       const w = slots[slotIdx]!;
       const m = round.matches[matchIdx]!;
@@ -99,8 +119,14 @@ export function createWaveSchedule(
       for (const t of [m.teamAId, m.teamBId]) {
         const r = rest(t, w, start);
         if (r < softTarget) c += SOFT_REST_WEIGHT * (softTarget - r) ** 2;
+        if (evenTarget !== undefined && Number.isFinite(r)) {
+          c += EVEN_REST_WEIGHT * Math.min(Math.abs(r - evenTarget), evenCap) ** 2;
+        }
         if (hardTarget !== undefined && r < hardTarget) c += HARD_REST_WEIGHT * (hardTarget - r);
       }
+      // Teams mit ähnlichem Tabellenplatz in ähnlichen Wellen halten: Sie treffen in der nächsten
+      // Runde oft aufeinander und haben dann schon dieselbe Pause vor sich.
+      if (evenTarget !== undefined) c += RANK_ORDER_WEIGHT * waveStep ** 2 * (slots[matchIdx]! - w) ** 2;
       // Winzige Präferenz für die Paarungsreihenfolge, damit gleichwertige Pläne stabil sind.
       return c + 1e-6 * Math.abs(matchIdx - slotIdx);
     };

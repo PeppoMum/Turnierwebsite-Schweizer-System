@@ -39,6 +39,11 @@ export interface ScheduleConfig {
   turnoverMinutes: number;
   roundBreakMinutes: number;
   optionalHardRestMinutes?: number;
+  /**
+   * Pausen aller Teams möglichst gleich lang halten (Standard: an). `false` = nur zu kurze
+   * Pausen vermeiden.
+   */
+  evenRest?: boolean;
   allocation: 'max_capacity' | 'balanced_waves';
 }
 

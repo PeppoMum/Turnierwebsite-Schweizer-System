@@ -137,7 +137,8 @@ describe('FirestoreTournamentStore', () => {
 
   it('Zeitverschiebung, Rückzug und Turnierende', async () => {
     expect(await owner.shiftFutureMatches(tid, 10)).toBe(2);
-    const teamId = owner.get(tid)!.teams[0]!.id;
+    // Ein Team, das schon gespielt hat (sonst wäre es „nicht erschienen“ statt „zurückgezogen“).
+    const teamId = owner.get(tid)!.matches.find((x) => x.status === 'completed')!.teamAId;
     await owner.withdrawTeam(tid, teamId);
     await waitFor(() => owner.get(tid)?.teams.find((t) => t.id === teamId)?.status === 'withdrawn');
     await waitFor(() => owner.get(tid)?.matches.every((x) => x.status !== 'scheduled' || x.revision >= 2));

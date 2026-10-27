@@ -18,6 +18,7 @@ import type {
   TournamentStatus,
   Visibility,
 } from '../domain';
+import type { TeamStanding } from '../domain/scoring';
 
 /** Felder, die als Firestore-Timestamp gespeichert werden. */
 type Stamped<T, K extends keyof T> = Omit<T, K> & { [P in K]: Timestamp };
@@ -208,24 +209,8 @@ export interface PublicResultDoc {
   updatedAt: Timestamp;
 }
 
-export interface PublicStandingRow {
-  rank: number;
-  teamId: string;
-  played: number;
-  wins: number;
-  draws: number;
-  losses: number;
-  goalsFor: number;
-  goalsAgainst: number;
-  goalDiff: number;
-  points: number;
-  /** Exakter Quotient oder null bei 0 Spielen (Anzeige „–“). */
-  quotient: number | null;
-  byes: number;
-  buchholz: number | null;
-  /** Zurückgezogene Teams sind nicht wertungsberechtigt. */
-  eligible: boolean;
-}
+/** Tabellenzeile wie von der Wertung berechnet (src/domain/scoring). */
+export type PublicStandingRow = TeamStanding;
 
 /** Tabelle – nur im Modus `full`, ein Dokument `publicStandings/current`. */
 export interface PublicStandingsDoc {

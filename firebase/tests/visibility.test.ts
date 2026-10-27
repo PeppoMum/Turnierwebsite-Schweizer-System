@@ -9,7 +9,7 @@ let env: RulesTestEnvironment;
 let s: Seeded;
 
 const row: PublicStandingRow = {
-  rank: 1, teamId: 't1', played: 1, wins: 1, draws: 0, losses: 0, goalsFor: 2, goalsAgainst: 1,
+  rank: 1, teamId: 't1', name: 'Team E', status: 'active', decidedBy: 'quotient', played: 1, wins: 1, draws: 0, losses: 0, goalsFor: 2, goalsAgainst: 1,
   goalDiff: 1, points: 3, quotient: 3, byes: 0, buchholz: null, eligible: true,
 };
 

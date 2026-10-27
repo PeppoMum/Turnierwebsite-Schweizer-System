@@ -16,7 +16,7 @@ cp .env.example .env.local   # Standard: lokale Firebase-Emulatoren
 npm run dev
 ```
 
-Firebase-Emulatoren (benötigt die Firebase CLI, `npm i -g firebase-tools`, und Java):
+Firebase-Emulatoren (die Firebase CLI ist als Dev-Abhängigkeit dabei; benötigt Java 21):
 
 ```bash
 npm run emulators
@@ -31,6 +31,7 @@ Das Projekt `demo-turnier` ist ein Emulator-Projekt und braucht kein echtes Fire
 | `npm run dev` | Entwicklungsserver |
 | `npm run build` | Produktions-Build nach `dist/` |
 | `npm test` | Unit- und Property-Tests (Vitest) |
+| `npm run test:rules` | Sicherheitsregeln und Datenschicht gegen den Firestore-Emulator |
 | `npm run test:e2e` | End-to-End-Tests (Playwright) |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript-Prüfung |
@@ -44,8 +45,9 @@ src/
     scoring/       Tabelle, Quotient, Feinwertungen (§6)
     pairing/       Auslosung und Schweizer Paarungen (§7)
     schedule/      Feld- und Wellenplanung (§8)
+  data/            Firestore-Zugriff: Layout, öffentliche Projektionen, Schreibvorgänge, Live-Abos
   ui/              React-Oberfläche
-firebase/          Firestore-Regeln und Indexe
+firebase/          Firestore-Regeln, Indexe, Regeltests, Einrichtungsanleitung (firebase/README.md)
 e2e/               Playwright-Tests
 ```
 

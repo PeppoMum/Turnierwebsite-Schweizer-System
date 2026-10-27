@@ -5,6 +5,7 @@ import { publicUrl } from '../../router';
 import { PAIRING_MODE_LABEL, TIE_BREAKER_LABEL } from '../../components/rules';
 import { CopyButton, QrCode, Seg, ShareButton } from '../../components/ui';
 import type { AdminCtx } from './AdminTournament';
+import { HelperInvite } from './HelperInvite';
 
 export function SettingsTab({ ctx }: { ctx: AdminCtx }) {
   const service = useService();
@@ -84,6 +85,7 @@ export function SettingsTab({ ctx }: { ctx: AdminCtx }) {
           </button>
         </div>
       </section>
+      <HelperInvite tid={t.id} title={t.title} />
     </div>
   );
 }

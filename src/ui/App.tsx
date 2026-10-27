@@ -1,7 +1,8 @@
 import './styles/tokens.css';
 import './styles/app.css';
-import { useEffect } from 'react';
-import { ServiceProvider, useLoading, usePublicTournament, useTournament } from './data/context';
+import { useEffect, type ReactNode } from 'react';
+import { ServiceProvider, useAuthService, useAuthUser, useLoading, usePublicTournament, useTournament } from './data/context';
+import type { AuthService } from './data/auth';
 import type { TournamentService } from './data/service';
 import { href, publicUrl, useRoute, type AdminTab, type PublicTab } from './router';
 import { AppShell, type MoreItem, type NavItem } from './shell/AppShell';
@@ -11,15 +12,17 @@ import { Wizard } from './screens/wizard/Wizard';
 import { AdminTournament } from './screens/admin/AdminTournament';
 import { PublicTournament } from './screens/public/PublicTournament';
 import { EmptyState } from './components/ui';
+import { LoginScreen } from './screens/auth/LoginForm';
+import { InvitationScreen } from './screens/auth/InvitationScreen';
 
 const APP_NAME = 'Turnierplaner';
 
-export function App({ service }: { service?: TournamentService }) {
+export function App({ service, auth }: { service?: TournamentService; auth?: AuthService }) {
   useEffect(() => {
     applyTheme();
   }, []);
   return (
-    <ServiceProvider service={service}>
+    <ServiceProvider service={service} auth={auth}>
       <Routes />
     </ServiceProvider>
   );
@@ -27,6 +30,7 @@ export function App({ service }: { service?: TournamentService }) {
 
 function Routes() {
   const route = useRoute();
+  const accountItems = useAccountItems();
   const routeKey = JSON.stringify(route);
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -43,12 +47,19 @@ function Routes() {
             { key: 'list', label: 'Turniere', icon: 'trophy', href: href({ name: 'dashboard' }), active: route.name === 'dashboard' },
             { key: 'new', label: 'Anlegen', icon: 'plus', href: href({ name: 'create' }), active: route.name === 'create' },
           ]}
+          more={accountItems}
         >
-          {route.name === 'dashboard' ? <Dashboard /> : <Wizard />}
+          <RequireLogin>{route.name === 'dashboard' ? <Dashboard /> : <Wizard />}</RequireLogin>
         </AppShell>
       );
     case 'admin':
-      return <AdminRoute id={route.id} tab={route.tab} />;
+      return <AdminRoute id={route.id} tab={route.tab} accountItems={accountItems} />;
+    case 'invite':
+      return (
+        <AppShell brand={APP_NAME} brandHref="#/" items={[]}>
+          <InvitationScreen tid={route.tid} inviteId={route.inviteId} />
+        </AppShell>
+      );
     case 'public':
       return <PublicRoute id={route.id} tab={route.tab} />;
     default:
@@ -71,6 +82,22 @@ const ADMIN_NAV: Array<{ tab: AdminTab; label: string; icon: NavItem['icon'] }> 
   { tab: 'einstellungen', label: 'Einstellungen', icon: 'settings' },
 ];
 
+/** „Abmelden“ im Mehr-Menü, wenn jemand angemeldet ist. */
+function useAccountItems(): MoreItem[] {
+  const auth = useAuthService();
+  const user = useAuthUser();
+  if (!auth || !user) return [];
+  return [{ key: 'logout', label: user.email ? `Abmelden (${user.email})` : 'Abmelden', icon: 'logout', onSelect: () => void auth.signOut() }];
+}
+
+/** Verwaltung nur mit Anmeldung, sofern die App mit Anmeldung läuft. */
+function RequireLogin({ children }: { children: ReactNode }) {
+  const user = useAuthUser();
+  if (user === undefined) return <Loading />;
+  if (user === null) return <LoginScreen />;
+  return <>{children}</>;
+}
+
 function Loading() {
   return (
     <div className="page" aria-busy="true">
@@ -79,12 +106,13 @@ function Loading() {
   );
 }
 
-function AdminRoute({ id, tab }: { id: string; tab: AdminTab }) {
+function AdminRoute({ id, tab, accountItems }: { id: string; tab: AdminTab; accountItems: MoreItem[] }) {
   const data = useTournament(id);
   const loading = useLoading(id);
   const more: MoreItem[] = [
     { key: 'public', label: 'Öffentliche Seite', icon: 'eye', href: href({ name: 'public', id, tab: 'aktuell' }) },
     { key: 'list', label: 'Alle Turniere', icon: 'trophy', href: href({ name: 'dashboard' }) },
+    ...accountItems,
   ];
   return (
     <AppShell
@@ -99,16 +127,21 @@ function AdminRoute({ id, tab }: { id: string; tab: AdminTab }) {
       }))}
       more={more}
     >
-      {data ? (
-        <AdminTournament data={data} tab={tab} />
-      ) : loading ? (
-        <Loading />
-      ) : (
-        <div className="page">
-          <h1 className="page-title">Turnier nicht gefunden</h1>
-          <EmptyState text="Dieses Turnier gibt es nicht oder es wurde gelöscht." action={<a className="btn pri" href="#/">Zu den Turnieren</a>} />
-        </div>
-      )}
+      <RequireLogin>
+        {data ? (
+          <AdminTournament data={data} tab={tab} />
+        ) : loading ? (
+          <Loading />
+        ) : (
+          <div className="page">
+            <h1 className="page-title">Turnier nicht gefunden</h1>
+            <EmptyState
+              text="Dieses Turnier gibt es nicht, oder dein Konto hat keinen Zugriff darauf."
+              action={<a className="btn pri" href="#/">Zu den Turnieren</a>}
+            />
+          </div>
+        )}
+      </RequireLogin>
     </AppShell>
   );
 }

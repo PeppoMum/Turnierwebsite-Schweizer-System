@@ -6,6 +6,7 @@ export type Route =
   | { name: 'create' }
   | { name: 'admin'; id: string; tab: AdminTab }
   | { name: 'public'; id: string; tab: PublicTab }
+  | { name: 'invite'; tid: string; inviteId: string }
   | { name: 'notFound' };
 
 export type AdminTab = 'live' | 'spielplan' | 'tabelle' | 'teams' | 'einstellungen';
@@ -27,6 +28,7 @@ export function parseHash(hash: string): Route {
     const tab = (parts[2] ?? 'aktuell') as PublicTab;
     return PUBLIC_TABS.includes(tab) ? { name: 'public', id: parts[1], tab } : { name: 'notFound' };
   }
+  if (parts[0] === 'einladung' && parts[1] && parts[2] && parts.length === 3) return { name: 'invite', tid: parts[1], inviteId: parts[2] };
   return { name: 'notFound' };
 }
 
@@ -40,6 +42,8 @@ export function href(route: Route): string {
       return `#/turnier/${encodeURIComponent(route.id)}${route.tab === 'live' ? '' : `/${route.tab}`}`;
     case 'public':
       return `#/t/${encodeURIComponent(route.id)}${route.tab === 'aktuell' ? '' : `/${route.tab}`}`;
+    case 'invite':
+      return `#/einladung/${encodeURIComponent(route.tid)}/${encodeURIComponent(route.inviteId)}`;
     default:
       return '#/';
   }

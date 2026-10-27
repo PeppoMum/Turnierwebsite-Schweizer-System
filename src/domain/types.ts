@@ -11,6 +11,15 @@ export type TieBreaker = 'head_to_head' | 'goal_diff' | 'goals_for' | 'buchholz'
 export type NotPlayedReason = 'no_show' | 'withdrawal' | 'cancellation' | 'other';
 export type RoleName = 'owner' | 'results_helper' | 'extended_helper';
 
+/**
+ * Buchholz-Variante (Spezifikation §6.2 verlangt eine explizit gewählte Definition).
+ * - `avg_opponent_quotient`: Durchschnitt der Quotienten aller Gegner (Standard, passt zur Quotientenwertung)
+ * - `sum_opponent_quotient`: Summe der Quotienten aller Gegner
+ * - `sum_opponent_points`: klassische Summe der Punkte aller Gegner
+ * Gezählt werden nur gewertete Spiele; Freilose und nicht ausgetragene Spiele erzeugen keinen Gegner.
+ */
+export type BuchholzVariant = 'avg_opponent_quotient' | 'sum_opponent_quotient' | 'sum_opponent_points';
+
 export interface PointsConfig {
   win: 3;
   draw: 1;
@@ -20,6 +29,8 @@ export interface PointsConfig {
 export interface RankingConfig {
   primary: 'points_per_played_match';
   tieBreakers: TieBreaker[];
+  /** Nur relevant, wenn `buchholz` in `tieBreakers` steht. Standard: `avg_opponent_quotient`. */
+  buchholzVariant?: BuchholzVariant;
 }
 
 export interface ScheduleConfig {

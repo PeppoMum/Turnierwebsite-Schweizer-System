@@ -553,7 +553,7 @@ service cloud.firestore {
                                  'timeZone', 'organizerAssetId', 'eventAssetId', 'themeColor',
                                  'status', 'visibility', 'isPublic', 'roundsTotal',
                                  'currentRound', 'teams', 'fields', 'sponsors',
-                                 'sourceRevision', 'updatedAt'])
+                                 'timing', 'sourceRevision', 'updatedAt'])
           && d.tournamentId == tid
           && d.isPublic is bool
           && validVisibility(d.visibility)

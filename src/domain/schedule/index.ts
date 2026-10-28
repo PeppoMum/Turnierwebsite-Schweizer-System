@@ -14,3 +14,10 @@ export { validateSchedule, type ScheduleConflict, type ScheduleValidation, type 
 export { previewShift, type ShiftChange, type ShiftPreview, type ShiftOptions } from './shift';
 export { solveAssignment } from './assignment';
 export { addMinutes, minutesBetween, zonedLocalToISO, formatLocalTime, timeZoneOffsetMinutes } from './time';
+export {
+  estimateRoundTimes,
+  type EstimateRoundTimesInput,
+  type KnownRoundTimes,
+  type RoundTimeEstimate,
+  type RoundTiming,
+} from './estimate';

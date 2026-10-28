@@ -10,8 +10,16 @@ import { StandingsTable, type TeamInfo } from '../../components/StandingsTable';
 import { ScheduleFilter, matchesFilter, useScheduleFilter } from '../../components/ScheduleFilter';
 import { TeamPicker } from '../../components/TeamPicker';
 import { formatQuotient } from '../../../domain/scoring/format';
+import { RoundTimes } from '../../components/RoundTimes';
+import { publicRoundTimes } from '../../data/logic';
 
 const FAV_KEY = 'turnier-fav-';
+
+function PublicRoundTimes({ view }: { view: PublicTournamentView }) {
+  const times = useMemo(() => publicRoundTimes(view), [view]);
+  const status = new Map(view.rounds.map((r) => [r.number, r.status]));
+  return <RoundTimes rounds={times} statusOf={(n) => status.get(n)} timeZone={view.tournament.timeZone} />;
+}
 
 interface Ctx {
   view: PublicTournamentView;
@@ -131,7 +139,12 @@ function Current({ ctx }: { ctx: Ctx }) {
   const minutesToNext = nextStart ? Math.round((new Date(nextStart).getTime() - now) / 60000) : null;
 
   if (view.matches.length === 0) {
-    return <EmptyState text="Die Paarungen erscheinen hier, sobald die Turnierleitung die erste Runde veröffentlicht." />;
+    return (
+      <>
+        <EmptyState text="Die Paarungen erscheinen hier, sobald die Turnierleitung die erste Runde veröffentlicht." />
+        <PublicRoundTimes view={view} />
+      </>
+    );
   }
 
   return (
@@ -192,7 +205,8 @@ function Schedule({ ctx }: { ctx: Ctx }) {
   return (
     <>
       <h1 className="page-title">Spielplan</h1>
-      {allRounds.length === 0 && <EmptyState text="Der Spielplan erscheint hier, sobald die erste Runde feststeht." />}
+      {allRounds.length === 0 && <EmptyState text="Die Paarungen erscheinen hier, sobald die erste Runde feststeht." />}
+      <PublicRoundTimes view={view} />
       {allRounds.length > 0 && (
         <ScheduleFilter rounds={allRounds.map((r) => r.number)} teams={pickerTeams(view)} value={filter} onChange={setFilter} />
       )}

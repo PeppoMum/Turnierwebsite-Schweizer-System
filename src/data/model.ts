@@ -167,8 +167,20 @@ export interface PublicTournamentDoc {
   teams: PublicTeam[];
   fields: PublicField[];
   sponsors: PublicSponsor[];
+  /**
+   * Zeitwerte für die ungefähren Startzeiten aller Runden. Fehlt bei Projektionen, die vor
+   * dieser Erweiterung oder unter älteren Schutzregeln geschrieben wurden.
+   */
+  timing?: PublicTiming | null;
   sourceRevision: number;
   updatedAt: Timestamp;
+}
+
+export interface PublicTiming {
+  tournamentStartISO: string;
+  matchMinutes: number;
+  turnoverMinutes: number;
+  roundBreakMinutes: number;
 }
 
 export interface PublicRoundDoc {

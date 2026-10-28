@@ -3,9 +3,52 @@
 import type { Match } from '../../domain';
 import { calculateStandings } from '../../domain/scoring';
 import { previewNextRound as domainPreviewNextRound } from '../../domain/pairing';
+import { estimateRoundTimes, type RoundTimeEstimate } from '../../domain/schedule';
 import type { PairingPreview, PublicTournamentView, StandingRow, TournamentData } from './types';
 
 export { planWaves, roundMinutes, wavesPerRound } from '../../domain/schedule';
+export type { RoundTimeEstimate };
+
+/** Start- und Endzeiten aller Runden; noch nicht gepaarte Runden sind hochgerechnet. */
+export function roundTimes(data: TournamentData): RoundTimeEstimate[] {
+  const t = data.tournament;
+  return estimateRoundTimes({
+    roundsTotal: t.roundsTotal,
+    timing: t.schedule,
+    teamCount: data.teams.filter((tm) => tm.status === 'active').length,
+    fieldCount: data.fields.filter((f) => f.active).length,
+    known: data.rounds.map((r) => ({
+      number: r.number,
+      plannedStartISO: r.plannedStartISO,
+      matches: data.matches.filter((m) => m.roundId === r.id),
+    })),
+  });
+}
+
+/** Wie `roundTimes`, aber nur aus der öffentlichen Projektion. Ohne Zeitwerte: nur geplante Runden. */
+export function publicRoundTimes(view: PublicTournamentView): RoundTimeEstimate[] {
+  const known = view.rounds.map((r) => ({
+    number: r.number,
+    plannedStartISO: r.plannedStartISO,
+    matches: view.matches.filter((m) => m.roundNumber === r.number),
+  }));
+  if (!view.timing) {
+    return estimateRoundTimes({
+      roundsTotal: Math.max(0, ...known.map((r) => r.number)),
+      timing: { tournamentStartISO: '', matchMinutes: 0, turnoverMinutes: 0, roundBreakMinutes: 0 },
+      teamCount: 0,
+      fieldCount: 0,
+      known,
+    }).filter((r) => !r.estimated);
+  }
+  return estimateRoundTimes({
+    roundsTotal: view.tournament.roundsTotal,
+    timing: view.timing,
+    teamCount: view.teams.filter((tm) => tm.status === 'active').length,
+    fieldCount: view.fields.length,
+    known,
+  });
+}
 
 export function isCounted(m: Match): boolean {
   return (
@@ -94,6 +137,12 @@ export function toPublicView(data: TournamentData): PublicTournamentView {
       .map((b) => ({ roundNumber: roundIdToNumber.get(b.roundId) ?? 0, teamId: b.teamId }))
       .filter((b) => roundNumbers.has(b.roundNumber)),
     ...(showTable ? { standings: computeStandings(data) } : {}),
+    timing: {
+      tournamentStartISO: t.schedule.tournamentStartISO,
+      matchMinutes: t.schedule.matchMinutes,
+      turnoverMinutes: t.schedule.turnoverMinutes,
+      roundBreakMinutes: t.schedule.roundBreakMinutes,
+    },
     updatedAt: t.updatedAt,
   };
 }

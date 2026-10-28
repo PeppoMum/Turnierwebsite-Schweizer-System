@@ -10,7 +10,7 @@ import {
   type UpdateData,
 } from 'firebase/firestore';
 import type { MatchStatus, NotPlayedReason } from '../domain';
-import { clean, newTransactionId, writeAudit, type Actor } from './audit';
+import { clean, newTransactionId, undoField, writeAudit, type Actor, type UndoRef } from './audit';
 import { DataError, RevisionConflictError, notFound, toDataError } from './errors';
 import { toMatch } from './mappers';
 import type { MatchDoc, PublicStandingRow } from './model';
@@ -25,7 +25,7 @@ import {
 
 export const MAX_GOALS = 99;
 
-export interface MatchWriteOptions {
+export interface MatchWriteOptions extends UndoRef {
   /**
    * Nur im Modus `full`: berechnet die öffentliche Tabelle nach dieser Änderung.
    * Bekommt das geänderte Spiel; der Aufrufer kennt alle übrigen Spiele aus seinem Abo.
@@ -103,13 +103,17 @@ async function mutateMatch(
             status: current.status,
             goalsA: current.goalsA ?? null,
             goalsB: current.goalsB ?? null,
+            notPlayedReason: current.notPlayedReason ?? null,
             revision: current.revision,
           },
           after: {
             status: patch.status,
-            goalsA: patch.goalsA ?? null,
-            goalsB: patch.goalsB ?? null,
+            goalsA: 'goalsA' in patch ? (patch.goalsA ?? null) : (current.goalsA ?? null),
+            goalsB: 'goalsB' in patch ? (patch.goalsB ?? null) : (current.goalsB ?? null),
+            notPlayedReason:
+              'notPlayedReason' in patch ? (patch.notPlayedReason ?? null) : (current.notPlayedReason ?? null),
             revision,
+            ...undoField(options),
           },
         },
         transactionId,
@@ -328,6 +332,57 @@ export function resetMatchToScheduled(
         throw new DataError('invalid_state', 'Dieses Spiel ist bereits geplant oder nicht freigegeben.');
       }
       return { status: 'scheduled', goalsA: null, goalsB: null, notPlayedReason: null, completedAt: null };
+    },
+    options,
+  );
+}
+
+export interface MatchState {
+  status: Extract<MatchStatus, 'scheduled' | 'live' | 'completed' | 'not_played'>;
+  goalsA?: number | null;
+  goalsB?: number | null;
+  notPlayedReason?: NotPlayedReason | null;
+}
+
+/**
+ * Spiel auf einen früheren Stand zurücksetzen („Rückgängig“ im Verlauf, nur Owner).
+ * `options.undoOf` verweist auf den Verlaufseintrag, der damit zurückgenommen wird.
+ */
+export function restoreMatchState(
+  db: Firestore,
+  actor: Actor,
+  tid: string,
+  matchId: string,
+  target: MatchState,
+  expectedRevision: number,
+  options?: MatchWriteOptions,
+) {
+  const withGoals = target.status === 'completed' || (target.status === 'live' && target.goalsA != null);
+  if (withGoals) {
+    assertGoal(target.goalsA ?? -1, 'Tore Team A');
+    assertGoal(target.goalsB ?? -1, 'Tore Team B');
+  }
+  return mutateMatch(
+    db,
+    actor,
+    tid,
+    matchId,
+    expectedRevision,
+    'match.undo',
+    (m) => {
+      if (m.status === 'draft' || m.status === 'cancelled') {
+        throw new DataError('invalid_state', 'Dieses Spiel lässt sich nicht zurücksetzen.');
+      }
+      const patch: MatchPatch = {
+        status: target.status,
+        goalsA: withGoals ? target.goalsA : null,
+        goalsB: withGoals ? target.goalsB : null,
+        notPlayedReason: target.status === 'not_played' ? (target.notPlayedReason ?? 'other') : null,
+      };
+      // Beendet bleibt beendet: der ursprüngliche Zeitpunkt bleibt dann stehen.
+      if (target.status !== 'completed') patch.completedAt = null;
+      else if (m.status !== 'completed') patch.completedAt = 'now';
+      return patch;
     },
     options,
   );

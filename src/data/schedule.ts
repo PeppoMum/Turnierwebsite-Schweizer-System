@@ -1,7 +1,7 @@
 // Zeitverschiebung (§8.3, §12 H): nur noch nicht begonnene Spiele verschieben sich;
 // laufende und beendete behalten ihre Zeiten.
 import { getDocs, query, runTransaction, serverTimestamp, where, type Firestore } from 'firebase/firestore';
-import { newTransactionId, writeAudit, type Actor } from './audit';
+import { newTransactionId, undoField, writeAudit, type Actor, type UndoRef } from './audit';
 import { DataError, toDataError } from './errors';
 import { paths } from './paths';
 
@@ -14,6 +14,7 @@ export async function shiftFutureMatches(
   actor: Actor,
   tid: string,
   deltaMinutes: number,
+  undo: UndoRef = {},
 ): Promise<number> {
   if (!Number.isInteger(deltaMinutes) || deltaMinutes === 0 || Math.abs(deltaMinutes) > 24 * 60) {
     throw new DataError('invalid_input', 'Bitte eine Verschiebung in ganzen Minuten (höchstens 24 Stunden) angeben.');
@@ -31,7 +32,7 @@ export async function shiftFutureMatches(
         tx,
         tid,
         actor,
-        { action: 'schedule.shift', targetType: 'tournament', targetId: tid, after: { deltaMinutes } },
+        { action: 'schedule.shift', targetType: 'tournament', targetId: tid, after: { deltaMinutes, ...undoField(undo) } },
         newTransactionId(),
       );
       const shiftedRounds = new Set<string>();

@@ -4,6 +4,7 @@
 import type { TournamentStatus, Visibility } from '../../domain';
 import { tournamentStatusLabel, visibilityLabel } from '../format';
 import type { HistoryEntry, TournamentData } from './types';
+import { matchStateText, undoneIds } from './undo';
 
 export interface HistoryLine {
   id: string;
@@ -12,6 +13,10 @@ export interface HistoryLine {
   text: string;
   /** Für den Filter „Nur Ergebnisse“. */
   isResult: boolean;
+  /** Dieser Schritt wurde später über „Rückgängig“ zurückgenommen. */
+  undone: boolean;
+  /** Dieser Schritt selbst nimmt einen früheren zurück (sein Rückgängig stellt ihn wieder her). */
+  isUndo: boolean;
 }
 
 type Rec = Record<string, unknown>;
@@ -72,10 +77,14 @@ export function describeHistory(entries: HistoryEntry[], data: TournamentData, m
         return { text: `Wieder geöffnet: ${matchLabel(e.targetId)}`, isResult: true };
       case 'match.reset':
         return { text: `Zurück auf „geplant“: ${matchLabel(e.targetId)}`, isResult: true };
+      case 'match.undo':
+        return { text: `Zurückgesetzt: ${matchLabel(e.targetId)}, jetzt ${matchStateText(after)}`, isResult: true };
       case 'round.publish':
         return { text: `Runde ${roundNumber(e) ?? ''} veröffentlicht` };
       case 'round.close':
         return { text: `Runde ${roundNumber(e) ?? ''} abgeschlossen` };
+      case 'round.reopen':
+        return { text: `Runde ${roundNumber(e) ?? ''} wieder geöffnet` };
       case 'schedule.shift': {
         const d = num(after.deltaMinutes) ?? 0;
         return { text: `Spielplan ${d >= 0 ? 'nach hinten' : 'nach vorne'} verschoben um ${Math.abs(d)} Min.` };
@@ -107,11 +116,18 @@ export function describeHistory(entries: HistoryEntry[], data: TournamentData, m
     }
   };
 
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  const undone = undoneIds(entries);
   const lines: HistoryLine[] = [];
   for (const e of entries) {
     const d = describe(e);
     if (!d) continue;
-    lines.push({ id: e.id, atISO: e.atISO, who: who(e.actorUid), text: d.text, isResult: d.isResult ?? false });
+    // Rückgängig-Schritte nennen den Schritt, den sie zurücknehmen.
+    const undoOf = rec(e.after).undoOf;
+    const original = typeof undoOf === 'string' ? byId.get(undoOf) : undefined;
+    const originalText = original ? describe(original)?.text : undefined;
+    const text = originalText ? `Rückgängig gemacht: ${originalText}` : d.text;
+    lines.push({ id: e.id, atISO: e.atISO, who: who(e.actorUid), text, isResult: d.isResult ?? false, undone: undone.has(e.id), isUndo: !!original });
   }
   return lines;
 }

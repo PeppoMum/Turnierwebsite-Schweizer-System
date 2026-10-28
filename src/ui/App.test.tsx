@@ -48,6 +48,21 @@ describe('App', () => {
     await screen.findByText('Mannschaft umbenannt: „TSG Waldrand“ → „TSG Waldrand 2“');
   });
 
+  it('nimmt einen Schritt im Verlauf zurück', async () => {
+    const service = renderAt('#/turnier/herbstcup/teams');
+    fireEvent.click(screen.getByRole('button', { name: 'TSG Waldrand ändern' }));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'TSG Waldrand 2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }));
+    await screen.findByText('TSG Waldrand 2');
+    window.location.hash = '#/turnier/herbstcup/verlauf';
+    fireEvent.click(await screen.findByRole('button', { name: 'Rückgängig' }));
+    expect(screen.getByText('Die Mannschaft heißt danach wieder „TSG Waldrand“.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Rückgängig machen' }));
+    await screen.findByText('Rückgängig gemacht: Mannschaft umbenannt: „TSG Waldrand“ → „TSG Waldrand 2“');
+    expect(service.get('herbstcup')!.teams.some((t) => t.name === 'TSG Waldrand')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Wiederherstellen' })).toBeInTheDocument();
+  });
+
   it('speichert ein Tor sofort', () => {
     const service = renderAt('#/turnier/herbstcup');
     const live = service.get('herbstcup')!.matches.find((m) => m.status === 'live')!;

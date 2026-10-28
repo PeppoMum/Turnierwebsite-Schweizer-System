@@ -4,7 +4,8 @@ import { createFixtures } from './fixtures';
 import { createWaveSchedule, zonedLocalToISO } from '../../domain/schedule';
 import { previewNextRound, toPublicView } from './logic';
 import type { TournamentService } from './service';
-import { assertDetails, checkedTeamName, movedStartISO, nextTeamId } from './details';
+import { assertDetails, checkedTeamName, detailsOf, movedStartISO, nextTeamId } from './details';
+import { undoCheck } from './undo';
 import type { HistoryEntry, PublicTournamentView, TeamEdit, TournamentData, TournamentDetails, WizardDraft } from './types';
 
 const STORAGE_KEY = 'turnier-demo-v1';
@@ -49,6 +50,10 @@ export class MockTournamentStore implements TournamentService {
   private log(tid: string, entry: Omit<HistoryEntry, 'id' | 'atISO' | 'actorUid'>): void {
     const list = this.history[tid] ?? [];
     this.history[tid] = [{ ...entry, id: uid('h'), atISO: nowISO(), actorUid: 'local' }, ...list].slice(0, HISTORY_LIMIT);
+    this.persistHistory();
+  }
+
+  private persistHistory(): void {
     if (!this.persist) return;
     try {
       localStorage.setItem(HISTORY_KEY, JSON.stringify(this.history));
@@ -60,7 +65,9 @@ export class MockTournamentStore implements TournamentService {
   private logMatch(tid: string, matchId: string, action: string, fn: () => void): void {
     const snap = () => {
       const m = this.get(tid)?.matches.find((x) => x.id === matchId);
-      return m ? { status: m.status, goalsA: m.goalsA ?? null, goalsB: m.goalsB ?? null } : null;
+      return m
+        ? { status: m.status, goalsA: m.goalsA ?? null, goalsB: m.goalsB ?? null, notPlayedReason: m.notPlayedReason ?? null, revision: m.revision }
+        : null;
     };
     const before = snap();
     fn();
@@ -434,6 +441,7 @@ export class MockTournamentStore implements TournamentService {
   }
 
   async withdrawTeam(tid: string, teamId: string): Promise<void> {
+    const matchIds: string[] = [];
     this.mutate(tid, (d) => {
       const t = d.teams.find((x) => x.id === teamId);
       if (!t) return;
@@ -442,6 +450,7 @@ export class MockTournamentStore implements TournamentService {
       t.withdrawnAt = nowISO();
       for (const m of d.matches) {
         if ((m.teamAId === teamId || m.teamBId === teamId) && m.status === 'scheduled') {
+          matchIds.push(m.id);
           m.status = 'not_played';
           m.notPlayedReason = started ? 'withdrawal' : 'no_show';
           m.revision += 1;
@@ -449,7 +458,7 @@ export class MockTournamentStore implements TournamentService {
       }
     });
     const status = this.get(tid)?.teams.find((t) => t.id === teamId)?.status;
-    this.log(tid, { action: `team.${status}`, targetType: 'tournament', targetId: tid, after: { teamId, status } });
+    this.log(tid, { action: `team.${status}`, targetType: 'tournament', targetId: tid, after: { teamId, status, matchIds } });
   }
 
   async restoreTeam(tid: string, teamId: string): Promise<void> {
@@ -537,6 +546,95 @@ export class MockTournamentStore implements TournamentService {
 
   async loadHistory(tid: string): Promise<HistoryEntry[]> {
     return this.history[tid] ?? [];
+  }
+
+  async undoHistory(tid: string, entry: HistoryEntry): Promise<void> {
+    const d = this.get(tid);
+    if (!d) throw new Error('Turnier nicht gefunden');
+    const check = undoCheck(entry, d);
+    if (!check?.ok) throw new Error(check?.reason ?? 'Dieser Schritt lässt sich nicht rückgängig machen.');
+    const plan = check.plan;
+    switch (plan.kind) {
+      case 'match': {
+        const { target } = plan;
+        this.logMatch(tid, plan.matchId, 'match.undo', () =>
+          this.mutateMatch(tid, plan.matchId, (m) => {
+            const goals = target.status === 'completed' || (target.status === 'live' && target.goalsA !== null);
+            if (target.status === 'completed' && m.status !== 'completed') m.completedAt = nowISO();
+            if (target.status !== 'completed') m.completedAt = undefined;
+            m.status = target.status;
+            m.goalsA = goals ? (target.goalsA ?? 0) : undefined;
+            m.goalsB = goals ? (target.goalsB ?? 0) : undefined;
+            m.notPlayedReason = target.status === 'not_played' ? (target.notPlayedReason ?? 'other') : undefined;
+          }),
+        );
+        break;
+      }
+      case 'team-restore': {
+        await this.restoreTeam(tid, plan.teamId);
+        const reopened: string[] = [];
+        this.mutate(tid, (x) => {
+          for (const m of x.matches) {
+            if (!plan.reopenMatchIds.includes(m.id) || m.status !== 'not_played') continue;
+            m.status = 'scheduled';
+            m.notPlayedReason = undefined;
+            m.revision += 1;
+            reopened.push(m.id);
+          }
+        });
+        const head = this.history[tid]?.[0];
+        if (head && reopened.length > 0) head.after = { ...(head.after as object), matchIds: reopened };
+        break;
+      }
+      case 'team-withdraw':
+        await this.withdrawTeam(tid, plan.teamId);
+        break;
+      case 'team-rename': {
+        const team = d.teams.find((t) => t.id === plan.teamId);
+        await this.saveTeam(tid, plan.teamId, { name: plan.name, logo: team?.logoAssetId ? d.assets[team.logoAssetId] : undefined });
+        break;
+      }
+      case 'details': {
+        const now = detailsOf(d);
+        await this.updateDetails(tid, {
+          ...now,
+          title: plan.patch.title ?? now.title,
+          organizerName: plan.patch.organizerName ?? now.organizerName,
+          venue: 'venue' in plan.patch ? (plan.patch.venue ?? '') : now.venue,
+          localDate: plan.patch.localDate ?? now.localDate,
+        });
+        break;
+      }
+      case 'visibility':
+        await this.setVisibility(tid, plan.visibility);
+        break;
+      case 'shift':
+        await this.shiftFutureMatches(tid, plan.deltaMinutes);
+        break;
+      case 'round-reopen': {
+        this.mutate(tid, (x) => {
+          const r = x.rounds.find((y) => y.id === plan.roundId);
+          if (!r) return;
+          r.status = 'active';
+          r.closedAt = undefined;
+        });
+        const n = this.get(tid)?.rounds.find((r) => r.id === plan.roundId)?.number;
+        this.log(tid, { action: 'round.reopen', targetType: 'round', targetId: plan.roundId, after: { roundNumber: n } });
+        break;
+      }
+      case 'tournament-reopen': {
+        this.mutate(tid, (x) => {
+          x.tournament.status = 'running';
+          x.tournament.finishedAt = undefined;
+        });
+        this.log(tid, { action: 'tournament.status.running', targetType: 'tournament', targetId: tid, before: { status: 'finished' }, after: { status: 'running' } });
+        break;
+      }
+    }
+    // Den neuen Eintrag mit dem zurückgenommenen verknüpfen (wie undoOf in Firestore).
+    const head = this.history[tid]?.[0];
+    if (head) head.after = { ...(head.after as object), undoOf: entry.id };
+    this.persistHistory();
   }
 
   /** Nur für die Demo: Beispieldaten zurücksetzen. */

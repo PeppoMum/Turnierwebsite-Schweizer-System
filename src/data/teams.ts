@@ -12,15 +12,20 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 import type { TeamStatus } from '../domain';
-import { newTransactionId, writeAudit, type Actor } from './audit';
+import { newTransactionId, undoField, writeAudit, type Actor, type UndoRef } from './audit';
 import { DataError, notFound, toDataError } from './errors';
 import type { PublicStandingRow, PublicTeam } from './model';
 import { paths } from './paths';
 import { standingsArePublic, toPublicStandings } from './projections';
 
-export interface TeamStatusOptions {
+export interface TeamStatusOptions extends UndoRef {
   /** Tabelle nach der Änderung (nur Modus `full`). */
   standings?: { rows: PublicStandingRow[]; throughRound: number };
+  /**
+   * Nur bei Rücknahme: Spiele, die der Rückzug ausfallen ließ und die wieder „geplant“ werden.
+   * Übersprungen werden Spiele, die inzwischen nicht mehr „nicht ausgetragen“ sind.
+   */
+  reopenMatchIds?: string[];
 }
 
 async function teamMatchIds(db: Firestore, tid: string, teamId: string): Promise<string[]> {
@@ -39,7 +44,8 @@ async function changeTeamStatus(
   mode: 'withdraw' | 'restore',
   options: TeamStatusOptions,
 ): Promise<TeamStatus> {
-  const matchIds = mode === 'withdraw' ? await teamMatchIds(db, tid, teamId) : [];
+  const matchIds = mode === 'withdraw' ? await teamMatchIds(db, tid, teamId) : (options.reopenMatchIds ?? []);
+  const undo = undoField(options);
   try {
     return await runTransaction(db, async (tx) => {
       const tRef = paths.tournament(db, tid);
@@ -63,12 +69,19 @@ async function changeTeamStatus(
           return st === 'live' || st === 'completed' || st === 'not_played';
         });
         status = started ? 'withdrawn' : 'no_show';
+        // Ausfallende Spiele im Audit festhalten, damit „Rückgängig“ genau diese wieder plant.
+        const cancelled = matchSnaps.filter((s) => s.data()?.status === 'scheduled').map((s) => s.id);
         const audit = writeAudit(
           db,
           tx,
           tid,
           actor,
-          { action: `team.${status}`, targetType: 'tournament', targetId: tid, after: { teamId, status } },
+          {
+            action: `team.${status}`,
+            targetType: 'tournament',
+            targetId: tid,
+            after: { teamId, status, matchIds: cancelled, ...undo },
+          },
           transactionId,
         );
         for (const s of matchSnaps) {
@@ -93,14 +106,36 @@ async function changeTeamStatus(
         if (teamSnap.data().status === 'active') {
           throw new DataError('invalid_state', 'Die Mannschaft ist bereits aktiv.');
         }
-        writeAudit(
+        const reopened = matchSnaps.filter((s) => s.data()?.status === 'not_played');
+        const audit = writeAudit(
           db,
           tx,
           tid,
           actor,
-          { action: 'team.restore', targetType: 'tournament', targetId: tid, after: { teamId } },
+          {
+            action: 'team.restore',
+            targetType: 'tournament',
+            targetId: tid,
+            after: { teamId, ...(reopened.length > 0 ? { matchIds: reopened.map((s) => s.id) } : {}), ...undo },
+          },
           transactionId,
         );
+        for (const s of reopened) {
+          const m = s.data()!;
+          tx.update(s.ref, {
+            status: 'scheduled',
+            notPlayedReason: deleteField(),
+            revision: m.revision + 1,
+            updatedAt: serverTimestamp(),
+            updatedBy: actor.uid,
+            lastAuditId: audit.id,
+          });
+          tx.set(
+            paths.publicMatch(db, tid, s.id),
+            { status: 'scheduled', sourceRevision: m.revision + 1, updatedAt: serverTimestamp() },
+            { merge: true },
+          );
+        }
         tx.update(teamRef, { status, withdrawnAt: deleteField() });
       }
 

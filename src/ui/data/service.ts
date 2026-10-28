@@ -41,4 +41,9 @@ export interface TournamentService {
   saveTeam(tid: string, teamId: string | null, team: TeamEdit): Promise<void>;
   /** Änderungsverlauf, neueste zuerst. */
   loadHistory(tid: string): Promise<HistoryEntry[]>;
+  /**
+   * Einen Schritt aus dem Verlauf zurücknehmen (Regeln in undo.ts). Prüft vorher noch einmal mit
+   * dem aktuellen Stand und wirft eine verständliche Meldung, wenn es nicht mehr geht.
+   */
+  undoHistory(tid: string, entry: HistoryEntry): Promise<void>;
 }

@@ -1,5 +1,6 @@
 // Bausteine nach Phils Style Guide.
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import qrcode from 'qrcode-generator';
 import type { MatchStatus, TournamentStatus } from '../../domain';
 import { initials, matchStatusLabel, tournamentStatusLabel, tournamentStatusTone } from '../format';
@@ -170,7 +171,8 @@ export function Dialog({ title, onClose, children }: { title: string; onClose: (
       prev?.focus?.();
     };
   }, []);
-  return (
+  // Ins <body> hängen, damit das Fenster nichts vom Aufrufer erbt (z. B. Tabellenkopf ohne Zeilenumbruch)
+  return createPortal(
     <div className="scrim sheet-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div ref={ref} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
         <h2 id={titleId} className="dialog-title">
@@ -181,7 +183,8 @@ export function Dialog({ title, onClose, children }: { title: string; onClose: (
         </button>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

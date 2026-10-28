@@ -2,12 +2,18 @@
 // Audit-Eintrag aus demselben Request verweist (`lastAuditId`), vom selben Akteur.
 import {
   doc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
   serverTimestamp,
   type DocumentReference,
   type Firestore,
   type Transaction,
   type WriteBatch,
 } from 'firebase/firestore';
+import { toDataError } from './errors';
+import { iso } from './mappers';
 import type { AuditDoc } from './model';
 import { paths } from './paths';
 
@@ -67,4 +73,23 @@ export function writeAudit(
   // Transaction.set und WriteBatch.set haben dieselbe Signatur.
   (writer as WriteBatch).set(ref, data as unknown as AuditDoc);
   return ref;
+}
+
+export interface AuditEntry extends Omit<AuditDoc, 'timestamp'> {
+  id: string;
+  /** Zeitpunkt als ISO-String; leer, solange der Server-Zeitstempel noch aussteht. */
+  atISO: string;
+}
+
+/** Die letzten Audit-Einträge eines Turniers, neueste zuerst (nur für den Owner lesbar). */
+export async function loadAudit(db: Firestore, tid: string, max = 300): Promise<AuditEntry[]> {
+  try {
+    const snap = await getDocs(query(paths.audit(db, tid), orderBy('timestamp', 'desc'), limit(max)));
+    return snap.docs.map((d) => {
+      const { timestamp, ...rest } = d.data();
+      return { ...rest, id: d.id, atISO: iso(timestamp) ?? '' };
+    });
+  } catch (err) {
+    throw toDataError(err);
+  }
 }

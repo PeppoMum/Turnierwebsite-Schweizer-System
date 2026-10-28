@@ -1,0 +1,146 @@
+/* Druckansicht: immer schwarz auf weiß wie ein Blatt Papier, auch im dunklen Modus. */
+.print-doc {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 16px;
+  background: #fff;
+  color: #000;
+  font-family: var(--font);
+  font-size: 13px;
+  min-height: 100vh;
+}
+
+.print-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px;
+  margin-bottom: 20px;
+  border: 1px solid var(--ln);
+  border-radius: var(--r-card);
+  background: var(--card);
+  color: var(--tx);
+}
+
+.print-controls .select {
+  width: auto;
+}
+
+.print-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  border-bottom: 2px solid #000;
+}
+
+.print-head h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.print-head p {
+  margin: 2px 0 0;
+}
+
+.print-head .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.print-team {
+  font-weight: 700;
+}
+
+.print-logo {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.print-round {
+  margin-bottom: 18px;
+  break-inside: avoid;
+}
+
+.print-round h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.print-round h2 span {
+  font-weight: 400;
+  font-size: 13px;
+}
+
+.print-round table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.print-round th,
+.print-round td {
+  border: 1px solid #999;
+  padding: 4px 6px;
+  text-align: center;
+}
+
+.print-round th {
+  background: #eee;
+  font-weight: 600;
+}
+
+.print-round .l {
+  text-align: left;
+}
+
+.print-round .b,
+.print-round tr.b td {
+  font-weight: 700;
+}
+
+.print-round .score {
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.print-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.print-foot {
+  margin-top: 18px;
+  font-size: 11px;
+  color: #555;
+}
+
+.print-table {
+  break-before: auto;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  .print-doc {
+    max-width: none;
+    padding: 0;
+    min-height: 0;
+  }
+
+  .print-round th {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

@@ -11,6 +11,7 @@ import { Dashboard } from './screens/Dashboard';
 import { Wizard } from './screens/wizard/Wizard';
 import { AdminTournament } from './screens/admin/AdminTournament';
 import { PublicTournament } from './screens/public/PublicTournament';
+import { PrintView } from './screens/admin/PrintView';
 import { EmptyState } from './components/ui';
 import { LoginScreen } from './screens/auth/LoginForm';
 import { InvitationScreen } from './screens/auth/InvitationScreen';
@@ -55,6 +56,12 @@ function Routes() {
       );
     case 'admin':
       return <AdminRoute id={route.id} tab={route.tab} accountItems={accountItems} />;
+    case 'print':
+      return (
+        <RequireLogin>
+          <PrintRoute id={route.id} />
+        </RequireLogin>
+      );
     case 'invite':
       return (
         <AppShell brand={APP_NAME} brandHref="#/" items={[]}>
@@ -118,6 +125,8 @@ function AdminRoute({ id, tab, accountItems }: { id: string; tab: AdminTab; acco
   const loading = useLoading(id);
   const more: MoreItem[] = [
     { key: 'public', label: 'Öffentliche Seite', icon: 'eye', href: href({ name: 'public', id, tab: 'aktuell' }) },
+    { key: 'print', label: 'Drucken oder PDF', icon: 'print', href: href({ name: 'print', id }) },
+    { key: 'verlauf', label: 'Verlauf', icon: 'clock', href: href({ name: 'admin', id, tab: 'verlauf' }), active: tab === 'verlauf' },
     { key: 'list', label: 'Alle Turniere', icon: 'trophy', href: href({ name: 'dashboard' }) },
     ...accountItems,
   ];
@@ -150,6 +159,19 @@ function AdminRoute({ id, tab, accountItems }: { id: string; tab: AdminTab; acco
         )}
       </RequireLogin>
     </AppShell>
+  );
+}
+
+function PrintRoute({ id }: { id: string }) {
+  const data = useTournament(id);
+  const loading = useLoading(id);
+  if (data) return <PrintView data={data} />;
+  if (loading) return <Loading />;
+  return (
+    <div className="page">
+      <h1 className="page-title">Turnier nicht gefunden</h1>
+      <EmptyState text="Dieses Turnier gibt es nicht, oder dein Konto hat keinen Zugriff darauf." action={<a className="btn pri" href="#/">Zu den Turnieren</a>} />
+    </div>
   );
 }
 

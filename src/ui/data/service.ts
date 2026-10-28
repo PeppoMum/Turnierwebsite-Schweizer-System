@@ -3,7 +3,7 @@
 // Schreibfehler (fehlende Rechte, inzwischen geänderte Daten) als Error mit deutscher, verständlicher Meldung werfen;
 // die Oberfläche zeigt sie an.
 import type { MatchStatus, NotPlayedReason, Visibility } from '../../domain';
-import type { PairingPreview, PublicTournamentView, TournamentData, WizardDraft } from './types';
+import type { HistoryEntry, PairingPreview, PublicTournamentView, TeamEdit, TournamentData, TournamentDetails, WizardDraft } from './types';
 
 export interface TournamentService {
   subscribe(listener: () => void): () => void;
@@ -34,4 +34,11 @@ export interface TournamentService {
   withdrawTeam(tid: string, teamId: string): Promise<void>;
   restoreTeam(tid: string, teamId: string): Promise<void>;
   finishTournament(tid: string): Promise<void>;
+
+  /** Name, Veranstalter, Ort, Datum, Logos und Sponsoren nachträglich ändern. */
+  updateDetails(tid: string, details: TournamentDetails): Promise<void>;
+  /** Mannschaft umbenennen oder Logo ändern; ohne teamId wird eine Mannschaft nachgemeldet. */
+  saveTeam(tid: string, teamId: string | null, team: TeamEdit): Promise<void>;
+  /** Änderungsverlauf, neueste zuerst. */
+  loadHistory(tid: string): Promise<HistoryEntry[]>;
 }

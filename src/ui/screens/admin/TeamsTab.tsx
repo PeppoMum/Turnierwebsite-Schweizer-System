@@ -4,7 +4,9 @@ import type { Team } from '../../../domain';
 import { useService } from '../../data/context';
 import { formatTime } from '../../format';
 import { Dialog, Notice, TeamName } from '../../components/ui';
+import { Icon } from '../../components/Icon';
 import type { AdminCtx } from './AdminTournament';
+import { TeamDialog } from './EditDetails';
 
 const STATUS_LABEL: Record<Team['status'], { text: string; tone: string }> = {
   active: { text: 'Aktiv', tone: 'g' },
@@ -18,6 +20,7 @@ export function TeamsTab({ ctx }: { ctx: AdminCtx }) {
   const { data } = ctx;
   const [target, setTarget] = useState<Team | null>(null);
   const [undo, setUndo] = useState<Team | null>(null);
+  const [editing, setEditing] = useState<Team | 'new' | null>(null);
   const active = data.teams.filter((t) => t.status === 'active').length;
 
   return (
@@ -25,6 +28,12 @@ export function TeamsTab({ ctx }: { ctx: AdminCtx }) {
       <div className="row">
         <span className="pill a">{active} aktive Teams</span>
         {active % 2 === 1 && <span className="pill y">Ungerade Zahl: pro Runde ein Freilos</span>}
+        {data.tournament.status !== 'finished' && data.tournament.status !== 'archived' && (
+          <button type="button" className="btn" style={{ marginLeft: 'auto' }} onClick={() => setEditing('new')}>
+            <Icon name="plus" />
+            Mannschaft nachmelden
+          </button>
+        )}
       </div>
       {undo && (
         <Notice
@@ -53,6 +62,9 @@ export function TeamsTab({ ctx }: { ctx: AdminCtx }) {
                 <TeamName name={t.name} logo={ctx.teamLogo(t.id)} muted={t.status !== 'active'} />
               </span>
               <span className={`pill ${s.tone}`}>{s.text}</span>
+              <button type="button" className="btn" aria-label={`${t.name} ändern`} onClick={() => setEditing(t)}>
+                Ändern
+              </button>
               {t.status === 'active' ? (
                 <button type="button" className="btn" onClick={() => setTarget(t)}>
                   Abmelden
@@ -66,6 +78,13 @@ export function TeamsTab({ ctx }: { ctx: AdminCtx }) {
           );
         })}
       </div>
+      {editing && (
+        <TeamDialog
+          data={data}
+          team={editing === 'new' ? null : { id: editing.id, name: editing.name, logo: ctx.teamLogo(editing.id) }}
+          onClose={() => setEditing(null)}
+        />
+      )}
       {target && (
         <WithdrawDialog
           ctx={ctx}

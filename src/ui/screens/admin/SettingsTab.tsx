@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Visibility } from '../../../domain';
 import { useService } from '../../data/context';
 import { formatDateShort, visibilityHelp, visibilityLabel } from '../../format';
@@ -6,11 +7,13 @@ import { PAIRING_MODE_LABEL, TIE_BREAKER_LABEL } from '../../components/rules';
 import { CopyButton, QrCode, Seg, ShareButton } from '../../components/ui';
 import type { AdminCtx } from './AdminTournament';
 import { HelperInvite, OpenHelperLink } from './HelperInvite';
+import { EditDetailsDialog } from './EditDetails';
 
 export function SettingsTab({ ctx }: { ctx: AdminCtx }) {
   const service = useService();
   const t = ctx.data.tournament;
   const url = publicUrl(t.id);
+  const [editing, setEditing] = useState(false);
   return (
     <div className="grid two">
       <section className="card stack">
@@ -64,7 +67,15 @@ export function SettingsTab({ ctx }: { ctx: AdminCtx }) {
           <dd>
             {t.schedule.matchMinutes} Min., Wechsel {t.schedule.turnoverMinutes} Min.
           </dd>
+          <dt>Sponsoren</dt>
+          <dd>{ctx.data.sponsors.length > 0 ? ctx.data.sponsors.map((s) => s.name).join(', ') : 'keine'}</dd>
         </dl>
+        <div className="row">
+          <button type="button" className="btn" onClick={() => setEditing(true)}>
+            Name, Logos und Sponsoren ändern
+          </button>
+        </div>
+        {editing && <EditDetailsDialog data={ctx.data} onClose={() => setEditing(false)} />}
       </section>
 
       <section className="card stack">

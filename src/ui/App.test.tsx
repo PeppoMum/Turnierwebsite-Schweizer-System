@@ -29,6 +29,25 @@ describe('App', () => {
     expect(screen.getAllByRole('button', { name: 'Spiel beenden' }).length).toBeGreaterThan(0);
   });
 
+  it('Druckansicht: Spielplan und Tabelle, für Aushang auch ohne Ergebnisse', () => {
+    renderAt('#/turnier/herbstcup/druck');
+    expect(screen.getByRole('heading', { level: 1, name: 'Herbstcup 2026' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Runde 1/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Tabelle/ })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Ergebnisse'), { target: { value: 'blank' } });
+    expect(screen.getAllByText('___ : ___').length).toBeGreaterThan(0);
+  });
+
+  it('Mannschaft umbenennen und im Verlauf wiederfinden', async () => {
+    renderAt('#/turnier/herbstcup/teams');
+    fireEvent.click(screen.getByRole('button', { name: 'TSG Waldrand ändern' }));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'TSG Waldrand 2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }));
+    await screen.findByText('TSG Waldrand 2');
+    window.location.hash = '#/turnier/herbstcup/verlauf';
+    await screen.findByText('Mannschaft umbenannt: „TSG Waldrand“ → „TSG Waldrand 2“');
+  });
+
   it('speichert ein Tor sofort', () => {
     const service = renderAt('#/turnier/herbstcup');
     const live = service.get('herbstcup')!.matches.find((m) => m.status === 'live')!;

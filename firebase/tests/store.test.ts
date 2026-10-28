@@ -135,6 +135,38 @@ describe('FirestoreTournamentStore', () => {
     await waitFor(() => owner.get(tid)?.tournament.currentRound === 2);
   });
 
+  it('Turnierdaten und Mannschaften nachträglich ändern, Gast sieht es sofort', async () => {
+    const before = owner.get(tid)!;
+    await owner.updateDetails(tid, {
+      title: 'Store-Cup Finaltag',
+      organizerName: 'SV Test',
+      venue: '',
+      localDate: before.tournament.localDate,
+      organizerLogo: undefined,
+      eventLogo: undefined,
+      sponsors: [{ id: 'neu', name: 'Metzgerei', url: '', logo: PNG_1PX }],
+    });
+    const renamed = before.teams[0]!;
+    await owner.saveTeam(tid, renamed.id, { name: 'Adler Nord' });
+    await owner.saveTeam(tid, null, { name: 'Spätstarter', logo: PNG_1PX });
+    const view = await waitFor(() => {
+      const v = guest.getPublic(tid);
+      return v?.tournament.title === 'Store-Cup Finaltag' && v.teams.some((t) => t.name === 'Spätstarter') ? v : undefined;
+    });
+    expect(view.organizerLogo).toBeUndefined();
+    expect(view.sponsors.map((x) => x.name)).toEqual(['Metzgerei']);
+    expect(view.sponsors[0]!.logo).toBe(PNG_1PX);
+    expect(view.teams.find((t) => t.id === renamed.id)!.name).toBe('Adler Nord');
+    expect(view.teams.find((t) => t.name === 'Spätstarter')!.logo).toBe(PNG_1PX);
+    await waitFor(() => guest.getPublic(tid)?.standings?.length === before.teams.length + 1);
+    await expect(owner.saveTeam(tid, null, { name: 'adler nord' })).rejects.toThrow(/schon eine Mannschaft/);
+
+    const history = await owner.loadHistory(tid);
+    expect(history.slice(0, 3).map((e) => e.action)).toEqual(['team.add', 'team.update', 'tournament.update']);
+    expect(history.at(-1)!.action).toBe('tournament.create');
+    await expect(guest.loadHistory(tid)).rejects.toMatchObject({ code: 'permission_denied' });
+  });
+
   it('Zeitverschiebung, Rückzug und Turnierende', async () => {
     expect(await owner.shiftFutureMatches(tid, 10)).toBe(2);
     // Ein Team, das schon gespielt hat (sonst wäre es „nicht erschienen“ statt „zurückgezogen“).

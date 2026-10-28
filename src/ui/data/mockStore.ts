@@ -4,9 +4,12 @@ import { createFixtures } from './fixtures';
 import { createWaveSchedule, zonedLocalToISO } from '../../domain/schedule';
 import { previewNextRound, toPublicView } from './logic';
 import type { TournamentService } from './service';
-import type { PublicTournamentView, TournamentData, WizardDraft } from './types';
+import { assertDetails, checkedTeamName, movedStartISO, nextTeamId } from './details';
+import type { HistoryEntry, PublicTournamentView, TeamEdit, TournamentData, TournamentDetails, WizardDraft } from './types';
 
 const STORAGE_KEY = 'turnier-demo-v1';
+const HISTORY_KEY = 'turnier-demo-verlauf-v1';
+const HISTORY_LIMIT = 300;
 
 export function uid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -25,9 +28,43 @@ export class MockTournamentStore implements TournamentService {
   private data: TournamentData[];
   private listeners = new Set<() => void>();
   private publicCache = new Map<string, { src: TournamentData; view: PublicTournamentView }>();
+  /** Änderungsverlauf je Turnier, neueste zuerst (Gegenstück zum Audit in Firestore). */
+  private history: Record<string, HistoryEntry[]>;
 
   constructor(initial?: TournamentData[], private persist = true) {
     this.data = initial ?? this.load() ?? createFixtures();
+    this.history = (initial ? null : this.loadHistoryStore()) ?? {};
+  }
+
+  private loadHistoryStore(): Record<string, HistoryEntry[]> | null {
+    if (!this.persist) return null;
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, HistoryEntry[]>) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private log(tid: string, entry: Omit<HistoryEntry, 'id' | 'atISO' | 'actorUid'>): void {
+    const list = this.history[tid] ?? [];
+    this.history[tid] = [{ ...entry, id: uid('h'), atISO: nowISO(), actorUid: 'local' }, ...list].slice(0, HISTORY_LIMIT);
+    if (!this.persist) return;
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(this.history));
+    } catch {
+      // Verlauf ist nur eine Komfortfunktion der Demo.
+    }
+  }
+
+  private logMatch(tid: string, matchId: string, action: string, fn: () => void): void {
+    const snap = () => {
+      const m = this.get(tid)?.matches.find((x) => x.id === matchId);
+      return m ? { status: m.status, goalsA: m.goalsA ?? null, goalsB: m.goalsB ?? null } : null;
+    };
+    const before = snap();
+    fn();
+    this.log(tid, { action, targetType: 'match', targetId: matchId, before, after: snap() });
   }
 
   private load(): TournamentData[] | null {
@@ -167,6 +204,7 @@ export class MockTournamentStore implements TournamentService {
       assets,
     };
     this.data = [data, ...this.data];
+    this.log(tid, { action: 'tournament.create', targetType: 'tournament', targetId: tid, after: { title: data.tournament.title } });
     if (publish) {
       // Erste Runde direkt auslosen und veröffentlichen.
       const preview = previewNextRound(data);
@@ -211,16 +249,21 @@ export class MockTournamentStore implements TournamentService {
   }
 
   async setArchived(id: string, archived: boolean): Promise<void> {
+    const before = this.get(id)?.tournament.status;
     this.mutate(id, (d) => {
       if (archived) d.tournament.status = 'archived';
       else d.tournament.status = d.tournament.finishedAt ? 'finished' : d.tournament.publishedAt ? 'published' : 'draft';
     });
+    const status = this.get(id)?.tournament.status;
+    this.log(id, { action: `tournament.status.${status}`, targetType: 'tournament', targetId: id, before: { status: before }, after: { status } });
   }
 
   async setVisibility(id: string, visibility: TournamentData['tournament']['visibility']): Promise<void> {
+    const before = this.get(id)?.tournament.visibility;
     this.mutate(id, (d) => {
       d.tournament.visibility = visibility;
     });
+    this.log(id, { action: 'tournament.visibility', targetType: 'visibility', targetId: id, before: { visibility: before }, after: { visibility } });
   }
 
   async setOpenHelperLink(id: string, mode: 'on' | 'off' | 'renew'): Promise<void> {
@@ -234,15 +277,19 @@ export class MockTournamentStore implements TournamentService {
     if (!Number.isInteger(goalsA) || !Number.isInteger(goalsB) || goalsA < 0 || goalsB < 0) {
       throw new Error('Tore müssen ganze Zahlen ab 0 sein.');
     }
-    this.mutateMatch(tid, matchId, (m) => {
-      m.goalsA = goalsA;
-      m.goalsB = goalsB;
-      if (m.status === 'scheduled') m.status = 'live';
-    });
+    const final = this.get(tid)?.matches.find((m) => m.id === matchId)?.status === 'completed';
+    this.logMatch(tid, matchId, final ? 'match.result.final' : 'match.result.live', () =>
+      this.mutateMatch(tid, matchId, (m) => {
+        m.goalsA = goalsA;
+        m.goalsB = goalsB;
+        if (m.status === 'scheduled') m.status = 'live';
+      }),
+    );
   }
 
   async setMatchStatus(tid: string, matchId: string, status: 'scheduled' | 'live' | 'completed'): Promise<void> {
-    this.mutateMatch(tid, matchId, (m) => {
+    const action = status === 'completed' ? 'match.result.final' : status === 'live' ? 'match.live' : 'match.reset';
+    this.logMatch(tid, matchId, action, () => this.mutateMatch(tid, matchId, (m) => {
       if (status === 'completed') {
         m.goalsA ??= 0;
         m.goalsB ??= 0;
@@ -258,24 +305,28 @@ export class MockTournamentStore implements TournamentService {
       }
       m.status = status;
       m.notPlayedReason = undefined;
-    });
+    }));
   }
 
   async markNotPlayed(tid: string, matchId: string, reason: NonNullable<Match['notPlayedReason']>): Promise<void> {
-    this.mutateMatch(tid, matchId, (m) => {
-      m.status = 'not_played';
-      m.notPlayedReason = reason;
-      m.goalsA = undefined;
-      m.goalsB = undefined;
-    });
+    this.logMatch(tid, matchId, 'match.not_played', () =>
+      this.mutateMatch(tid, matchId, (m) => {
+        m.status = 'not_played';
+        m.notPlayedReason = reason;
+        m.goalsA = undefined;
+        m.goalsB = undefined;
+      }),
+    );
   }
 
   async reopenMatch(tid: string, matchId: string): Promise<void> {
-    this.mutateMatch(tid, matchId, (m) => {
-      m.status = m.goalsA === undefined ? 'scheduled' : 'live';
-      m.notPlayedReason = undefined;
-      m.completedAt = undefined;
-    });
+    this.logMatch(tid, matchId, 'match.reopen', () =>
+      this.mutateMatch(tid, matchId, (m) => {
+        m.status = m.goalsA === undefined ? 'scheduled' : 'live';
+        m.notPlayedReason = undefined;
+        m.completedAt = undefined;
+      }),
+    );
   }
 
   previewNextRound = (tid: string, seed?: number) => {
@@ -350,6 +401,7 @@ export class MockTournamentStore implements TournamentService {
         d.tournament.publishedAt = now;
       }
     });
+    this.log(tid, { action: 'round.publish', targetType: 'round', targetId: `${tid}-r${preview.roundNumber}`, after: { roundNumber: preview.roundNumber } });
   }
 
   async closeCurrentRound(tid: string): Promise<void> {
@@ -359,6 +411,8 @@ export class MockTournamentStore implements TournamentService {
       r.status = 'closed';
       r.closedAt = nowISO();
     });
+    const t = this.get(tid)?.tournament;
+    if (t) this.log(tid, { action: 'round.close', targetType: 'round', targetId: `${tid}-r${t.currentRound}` });
   }
 
   async shiftFutureMatches(tid: string, deltaMinutes: number): Promise<number> {
@@ -375,6 +429,7 @@ export class MockTournamentStore implements TournamentService {
         r.plannedStartISO = new Date(new Date(r.plannedStartISO).getTime() + deltaMinutes * 60000).toISOString();
       }
     });
+    this.log(tid, { action: 'schedule.shift', targetType: 'tournament', targetId: tid, after: { deltaMinutes } });
     return count;
   }
 
@@ -393,6 +448,8 @@ export class MockTournamentStore implements TournamentService {
         }
       }
     });
+    const status = this.get(tid)?.teams.find((t) => t.id === teamId)?.status;
+    this.log(tid, { action: `team.${status}`, targetType: 'tournament', targetId: tid, after: { teamId, status } });
   }
 
   async restoreTeam(tid: string, teamId: string): Promise<void> {
@@ -402,6 +459,7 @@ export class MockTournamentStore implements TournamentService {
       t.status = 'active';
       t.withdrawnAt = undefined;
     });
+    this.log(tid, { action: 'team.restore', targetType: 'tournament', targetId: tid, after: { teamId } });
   }
 
   async finishTournament(tid: string): Promise<void> {
@@ -410,6 +468,75 @@ export class MockTournamentStore implements TournamentService {
       d.tournament.finishedAt = nowISO();
       for (const r of d.rounds) if (r.status !== 'closed') r.status = 'closed';
     });
+    this.log(tid, { action: 'tournament.status.finished', targetType: 'tournament', targetId: tid, after: { status: 'finished' } });
+  }
+
+  async updateDetails(tid: string, details: TournamentDetails): Promise<void> {
+    const src = this.get(tid);
+    if (!src) throw new Error('Turnier nicht gefunden');
+    assertDetails(src, details);
+    const before = { title: src.tournament.title, organizerName: src.tournament.organizerName, venue: src.tournament.venue ?? null, localDate: src.tournament.localDate };
+    const after = { title: details.title.trim(), organizerName: details.organizerName.trim(), venue: details.venue.trim() || null, localDate: details.localDate };
+    this.mutate(tid, (d) => {
+      const keep = (assetId: string | undefined, next: string | undefined) => {
+        if (!next) return undefined;
+        if (assetId && d.assets[assetId] === next) return assetId;
+        const id = uid('a');
+        d.assets[id] = next;
+        return id;
+      };
+      const t = d.tournament;
+      const startISO = movedStartISO(d, details.localDate);
+      t.title = after.title;
+      t.organizerName = after.organizerName;
+      t.venue = after.venue ?? undefined;
+      t.localDate = details.localDate;
+      if (startISO) t.schedule.tournamentStartISO = startISO;
+      t.organizerAssetId = keep(t.organizerAssetId, details.organizerLogo);
+      t.eventAssetId = keep(t.eventAssetId, details.eventLogo);
+      const old = new Map(d.sponsors.map((s) => [s.id, s]));
+      d.sponsors = details.sponsors.map((s, i) => ({
+        id: old.has(s.id) ? s.id : uid(`${tid}-s`),
+        name: s.name.trim(),
+        url: s.url.trim() || undefined,
+        order: i,
+        assetId: keep(old.get(s.id)?.assetId, s.logo),
+      }));
+    });
+    this.log(tid, { action: 'tournament.update', targetType: 'tournament', targetId: tid, before, after });
+  }
+
+  async saveTeam(tid: string, teamId: string | null, team: TeamEdit): Promise<void> {
+    const src = this.get(tid);
+    if (!src) throw new Error('Turnier nicht gefunden');
+    const name = checkedTeamName(src, teamId, team);
+    const id = teamId ?? nextTeamId(src);
+    const beforeName = src.teams.find((t) => t.id === teamId)?.name;
+    this.mutate(tid, (d) => {
+      let logoAssetId: string | undefined;
+      const existing = d.teams.find((t) => t.id === id);
+      if (team.logo) {
+        logoAssetId = existing?.logoAssetId && d.assets[existing.logoAssetId] === team.logo ? existing.logoAssetId : uid('a');
+        d.assets[logoAssetId] = team.logo;
+      }
+      if (existing) {
+        existing.name = name;
+        existing.logoAssetId = logoAssetId;
+      } else {
+        d.teams.push({ id, tournamentId: tid, name, status: 'active', joinedAt: nowISO(), seed: d.teams.length + 1, logoAssetId });
+      }
+    });
+    this.log(tid, {
+      action: teamId ? 'team.update' : 'team.add',
+      targetType: 'team',
+      targetId: id,
+      before: beforeName ? { name: beforeName } : null,
+      after: { teamId: id, name },
+    });
+  }
+
+  async loadHistory(tid: string): Promise<HistoryEntry[]> {
+    return this.history[tid] ?? [];
   }
 
   /** Nur für die Demo: Beispieldaten zurücksetzen. */

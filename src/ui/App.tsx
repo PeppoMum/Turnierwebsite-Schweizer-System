@@ -15,6 +15,7 @@ import { PrintView } from './screens/admin/PrintView';
 import { EmptyState } from './components/ui';
 import { LoginScreen } from './screens/auth/LoginForm';
 import { InvitationScreen } from './screens/auth/InvitationScreen';
+import { HelperScreen } from './screens/helper/HelperScreen';
 
 const APP_NAME = 'Turnierplaner';
 
@@ -65,6 +66,12 @@ function Routes() {
       return (
         <AppShell brand={APP_NAME} brandHref="#/" items={[]}>
           <InvitationScreen tid={route.tid} inviteId={route.inviteId} />
+        </AppShell>
+      );
+    case 'helper':
+      return (
+        <AppShell brand={APP_NAME} brandHref={href({ name: 'helper', tid: route.tid, linkId: route.linkId })} items={[]}>
+          <HelperScreen tid={route.tid} linkId={route.linkId} />
         </AppShell>
       );
     case 'public':

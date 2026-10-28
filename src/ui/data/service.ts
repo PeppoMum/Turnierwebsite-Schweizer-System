@@ -18,6 +18,8 @@ export interface TournamentService {
   duplicateTournament(id: string): Promise<string>;
   setArchived(id: string, archived: boolean): Promise<void>;
   setVisibility(id: string, visibility: Visibility): Promise<void>;
+  /** Helferlink ohne Anmeldung ein- oder ausschalten; „renew“ ersetzt ihn, der alte gilt dann nicht mehr. */
+  setOpenHelperLink(id: string, mode: 'on' | 'off' | 'renew'): Promise<void>;
 
   recordScore(tid: string, matchId: string, goalsA: number, goalsB: number): Promise<void>;
   setMatchStatus(tid: string, matchId: string, status: Extract<MatchStatus, 'scheduled' | 'live' | 'completed'>): Promise<void>;

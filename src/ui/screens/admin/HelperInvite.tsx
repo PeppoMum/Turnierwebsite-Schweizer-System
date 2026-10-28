@@ -1,6 +1,7 @@
 // Helfer per Link einladen. Der Link enthält nur eine Einladung; wer ihn öffnet, meldet sich mit eigenem Konto an.
 import { useState } from 'react';
-import { useAuthService } from '../../data/context';
+import { useAuthService, useService } from '../../data/context';
+import { helperUrl } from '../../router';
 import { ROLE_LABEL, type CreateInvitationInput } from '../../data/auth';
 import { CopyButton, Notice, Seg, ShareButton } from '../../components/ui';
 
@@ -81,6 +82,60 @@ export function HelperInvite({ tid, title }: { tid: string; title: string }) {
             {busy ? 'Einen Moment …' : 'Einladungslink erstellen'}
           </button>
         </div>
+      )}
+    </section>
+  );
+}
+
+/** Optionaler Helferlink ohne Anmeldung: ein Link für alle Helfer, jederzeit abschaltbar. */
+export function OpenHelperLink({ tid, title, linkId }: { tid: string; title: string; linkId?: string | null }) {
+  const service = useService();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const link = linkId ? helperUrl(tid, linkId) : null;
+
+  const run = async (mode: 'on' | 'off' | 'renew') => {
+    setBusy(true);
+    setError(null);
+    try {
+      await service.setOpenHelperLink(tid, mode);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Das hat nicht geklappt.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card stack">
+      <h2 className="card-title">Helfer ohne Anmeldung</h2>
+      <Seg<'off' | 'on'>
+        label="Helfer ohne Anmeldung"
+        value={link ? 'on' : 'off'}
+        onChange={(v) => void run(v)}
+        options={[
+          { value: 'off', label: 'Aus', disabled: busy },
+          { value: 'on', label: 'An', disabled: busy },
+        ]}
+      />
+      <span className="muted">
+        Wer diesen Link hat, kann ohne Konto und ohne Passwort Spiele anpfeifen und Ergebnisse eintragen. Gib ihn nur deinen Helfern.
+      </span>
+      {error && <Notice tone="warn" title={error} />}
+      {link && (
+        <>
+          <code className="small-text" style={{ overflowWrap: 'anywhere' }}>
+            {link}
+          </code>
+          <div className="row">
+            <CopyButton text={link} />
+            <ShareButton url={link} title={`Helferlink: ${title}`} fallback={false} />
+            <button type="button" className="btn" disabled={busy} onClick={() => void run('renew')}>
+              Neuen Link erzeugen
+            </button>
+          </div>
+          <span className="small-text">Ausschalten oder ein neuer Link sperrt den alten Link sofort, auch für alle, die ihn schon benutzt haben.</span>
+        </>
       )}
     </section>
   );

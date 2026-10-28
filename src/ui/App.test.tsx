@@ -70,6 +70,56 @@ describe('App', () => {
     expect(screen.getByText(/Gib dem Turnier einen Namen/, { selector: '.notice span' })).toBeInTheDocument();
   });
 
+  it('pfeift alle Spiele einer Anstoßzeit mit einem Klick an', async () => {
+    const service = renderAt('#/turnier/minicup');
+    const button = screen.getAllByRole('button', { name: /^Alle \d\d:\d\d-Spiele anpfeifen$/ })[0]!;
+    const first = service.get('minicup')!.matches.filter((m) => m.waveIndex === 0);
+    expect(first.length).toBeGreaterThan(1);
+    fireEvent.click(button);
+    await waitFor(() => expect(service.get('minicup')!.matches.filter((m) => m.waveIndex === 0).every((m) => m.status === 'live')).toBe(true));
+    expect(service.get('minicup')!.matches.filter((m) => m.waveIndex !== 0).every((m) => m.status === 'scheduled')).toBe(true);
+  });
+
+  it('filtert den öffentlichen Spielplan nach Mannschaft und Runde', () => {
+    const service = renderAt('#/t/herbstcup/spielplan');
+    const team = service.get('herbstcup')!.teams[0]!;
+    const input = screen.getByRole('combobox', { name: 'Mannschaft' });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: team.name.slice(0, 4) } });
+    fireEvent.click(screen.getByRole('option', { name: team.name }));
+    const cards = screen.getAllByRole('article');
+    expect(cards.length).toBeGreaterThan(0);
+    cards.forEach((c) => expect(within(c).getByText(team.name)).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText('Runde'), { target: { value: '1' } });
+    expect(screen.queryByRole('heading', { name: 'Runde 2' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('article').length).toBe(1);
+  });
+
+  it('zeigt die öffentliche Tabelle schon vor dem ersten Ergebnis', async () => {
+    window.location.hash = '#/t/minicup/tabelle';
+    const service = new MockTournamentStore(createFixtures(), false);
+    await service.setVisibility('minicup', 'full');
+    render(<App service={service} />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Tabelle' })).toBeInTheDocument();
+    expect(screen.getByText(service.get('minicup')!.teams[0]!.name)).toBeInTheDocument();
+  });
+
+  it('öffnet die Helferansicht über den Helferlink nur mit gültigem Link', async () => {
+    const service = new MockTournamentStore(createFixtures(), false);
+    await service.setOpenHelperLink('herbstcup', 'on');
+    const linkId = service.get('herbstcup')!.tournament.openHelperLinkId!;
+    window.location.hash = `#/helfer/herbstcup/${linkId}`;
+    const { unmount } = render(<App service={service} />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Runde 2 von 8' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Runde abschließen|Neue Runde/ })).not.toBeInTheDocument();
+    unmount();
+
+    await service.setOpenHelperLink('herbstcup', 'renew');
+    render(<App service={service} />);
+    expect(screen.getByText(/Dieser Helferlink gilt nicht mehr/)).toBeInTheDocument();
+  });
+
   describe('mit Anmeldung', () => {
     function renderWithAuth(hash: string, auth: FakeAuth) {
       window.location.hash = hash;

@@ -69,6 +69,8 @@ export interface RoleGrantDoc {
   /** Nur für extended_helper: darf Runden freigeben. */
   canPublishRounds?: boolean;
   inviteId?: string;
+  /** Rolle stammt aus dem Helferlink ohne Anmeldung; gilt nur, solange das Turnier diesen Link hat. */
+  openLinkId?: string;
   email?: string | null;
   createdAt: Timestamp;
   createdBy: string;

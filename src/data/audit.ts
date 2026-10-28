@@ -20,6 +20,8 @@ import { paths } from './paths';
 export interface Actor {
   uid: string;
   email?: string | null;
+  /** Anonymer Login über den Helferlink ohne Anmeldung (kein Konto). */
+  anonymous?: boolean;
 }
 
 export interface AuditInput {

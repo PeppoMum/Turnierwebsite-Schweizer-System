@@ -6,7 +6,7 @@ import { publicUrl } from '../../router';
 import { PAIRING_MODE_LABEL, TIE_BREAKER_LABEL } from '../../components/rules';
 import { CopyButton, QrCode, Seg, ShareButton } from '../../components/ui';
 import type { AdminCtx } from './AdminTournament';
-import { HelperInvite } from './HelperInvite';
+import { HelperInvite, OpenHelperLink } from './HelperInvite';
 import { EditDetailsDialog } from './EditDetails';
 
 export function SettingsTab({ ctx }: { ctx: AdminCtx }) {
@@ -96,6 +96,7 @@ export function SettingsTab({ ctx }: { ctx: AdminCtx }) {
           </button>
         </div>
       </section>
+      <OpenHelperLink tid={t.id} title={t.title} linkId={t.openHelperLinkId} />
       <HelperInvite tid={t.id} title={t.title} />
     </div>
   );

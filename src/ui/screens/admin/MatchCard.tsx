@@ -52,6 +52,7 @@ export function MatchCard({
   timeZone,
   quickMode,
   locked,
+  canCorrect = true,
 }: {
   tid: string;
   match: Match;
@@ -61,6 +62,8 @@ export function MatchCard({
   timeZone: string;
   quickMode: boolean;
   locked?: boolean;
+  /** false: beendete Spiele nicht wieder öffnen (Ergebnis-Helfer dürfen das nicht). */
+  canCorrect?: boolean;
 }) {
   const service = useService();
   const [notPlayedOpen, setNotPlayedOpen] = useState(false);
@@ -152,7 +155,7 @@ export function MatchCard({
               Nicht ausgetragen
             </button>
           )}
-          {(match.status === 'completed' || match.status === 'not_played') && (
+          {canCorrect && (match.status === 'completed' || match.status === 'not_played') && (
             <button type="button" className="btn" onClick={() => run(() => service.reopenMatch(tid, match.id))}>
               <Icon name="edit" />
               Korrigieren

@@ -15,7 +15,7 @@ Betrieb ausschließlich im **Spark-Tarif** (kostenlos): kein Cloud Storage, kein
 | `…/rounds/{round-NN}` | Runde inkl. `matchIds`, `byeTeamIds`, `generatedFromRevision` | Mitglieder | Owner; erweiterte Helfer mit Freigaberecht nur `preview → published` |
 | `…/matches/{id}` | Spiel inkl. Tore, `revision`, `lastAuditId` | Mitglieder | Owner; Helfer nur Score/Status |
 | `…/audit/{id}` | Änderungsprotokoll | Owner | Mitglieder (nur anlegen, nie ändern/löschen) |
-| `…/roleGrants/{uid}` | Rolle je uid + Turnier | Owner, die Person selbst | Owner; Einlösung einer Einladung |
+| `…/roleGrants/{uid}` | Rolle je uid + Turnier | Owner, die Person selbst | Owner; Einlösung einer Einladung; Helferlink ohne Anmeldung |
 | `…/invitations/{id}` | Helfer-Einladungen | Owner (Liste), angemeldete Person mit Link (einzeln) | Owner; Einlösung |
 | `…/assets/{id}` | kleine Bilder (Data-URL) | Mitglieder | Owner |
 | `publicTournaments/{tid}` | öffentliche Stammdaten, Teams alphabetisch, Felder, Sponsoren | alle, wenn `isPublic` | Owner |
@@ -80,8 +80,30 @@ Leserecht an den Sichtbarkeitsmodus des öffentlichen Turnierdokuments gebunden 
 4. Der Owner sieht im Grant, welche E-Mail eingelöst hat, und kann mit `revokeHelper` sofort entziehen.
 
 Der Link ist damit eine Referenz, keine Schreibberechtigung: ohne Login nutzlos, nach dem ersten
-Einlösen verbraucht. Eine echte passwortlose Einlösung bräuchte ein Backend (Blaze-Tarif) und ist
-bewusst nicht gebaut.
+Einlösen verbraucht.
+
+## Helferlink ohne Anmeldung (optional je Turnier)
+
+Für Turniere, bei denen Helfer kein Konto anlegen sollen. Voraussetzung: In Firebase unter
+Authentication → Anmeldemethode ist der Anbieter **Anonym** aktiviert.
+
+1. Owner schaltet den Link in den Einstellungen ein. Das setzt `tournament.openHelperLinkId` auf eine
+   Zufalls-ID (24 Zeichen, `newOpenHelperLinkId`). Link: `…/#/helfer/{tid}/{openHelperLinkId}`.
+2. Wer den Link öffnet, wird anonym angemeldet; `joinWithOpenHelperLink` legt den Grant
+   `results_helper` (alle Felder, kein Ablauf) mit `openLinkId` an. Die Regeln erlauben das nur
+   anonymen Logins und nur mit genau der aktuellen ID des Turniers (`openLinkGrant`).
+3. Link-Grants gelten nur, solange `openLinkId == tournament.openHelperLinkId` (`myRole`). Ausschalten
+   (`null`) oder „Neuen Link erzeugen“ sperrt sofort alle bisherigen Link-Helfer; mit dem neuen Link
+   stellt ein Helfer seinen Grant selbst auf die neue ID um.
+4. Konten mit Rolle (z. B. die Turnierleitung) behalten ihre Rolle; Konten ohne Rolle bekommen über den
+   Link keine (sie müssten sich abmelden).
+
+Wer den Link kennt, kann Ergebnisse eintragen – das ist der bewusste Tausch gegen das Passwort. Korrekturen
+beendeter Spiele, Runden und Stammdaten bleiben beim Owner bzw. erweiterten Helfern.
+
+Hinweis zu den Regeln: Firestore wertet je Anfrage höchstens 1000 Ausdrücke aus. Die Spielregel ist nahe
+an dieser Grenze; deshalb berechnet `myRole` die Rolle einmal und `matchChangeAllowed` bekommt sie als
+Parameter, statt mehrfach `isOwner`/`isHelper` aufzurufen.
 
 ## Bilder (§10.2)
 

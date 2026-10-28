@@ -460,6 +460,7 @@ export class FirestoreTournamentStore implements TournamentService {
       }),
       byes: e.rounds.value.flatMap((r) => (r.byeTeamIds ?? []).map((teamId) => ({ roundNumber: r.number, teamId }))),
       ...(d.visibility === 'full' && e.standings.value ? { standings: e.standings.value.rows } : {}),
+      ...(d.timing ? { timing: d.timing } : {}),
       updatedAt: iso(d.updatedAt) ?? new Date().toISOString(),
     };
   }
@@ -816,6 +817,9 @@ export class FirestoreTournamentStore implements TournamentService {
       const fresh = await getDoc(paths.tournament(this.db, tid));
       await setTournamentStatus(this.db, actor, tid, fresh.data()?.revision ?? d.tournament.revision, 'published');
       await syncPublicTournament(this.db, tid, { isPublic: true });
+    } else {
+      // Rundenstand und Zeitwerte der öffentlichen Seite nachziehen.
+      await this.syncPublicIfShown(tid, d.tournament.status);
     }
   }
 

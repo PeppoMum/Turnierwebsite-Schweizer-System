@@ -228,20 +228,29 @@ export async function syncPublicTournament(
       getDocs(paths.fields(db, tid)),
       getDocs(paths.sponsors(db, tid)),
     ]);
-    await runTransaction(db, async (tx) => {
-      const snap = await tx.get(paths.tournament(db, tid));
-      if (!snap.exists()) throw notFound('Das Turnier');
-      const projection = toPublicTournament(tid, snap.data(), {
-        teams: teams.docs.map((d) => ({ ...d.data(), id: d.id })),
-        fields: fields.docs.map((d) => ({ ...d.data(), id: d.id })),
-        sponsors: sponsors.docs.map((d) => ({ ...d.data(), id: d.id })),
-        isPublic: options.isPublic,
+    const write = (withTiming: boolean) =>
+      runTransaction(db, async (tx) => {
+        const snap = await tx.get(paths.tournament(db, tid));
+        if (!snap.exists()) throw notFound('Das Turnier');
+        const { timing, ...projection } = toPublicTournament(tid, snap.data(), {
+          teams: teams.docs.map((d) => ({ ...d.data(), id: d.id })),
+          fields: fields.docs.map((d) => ({ ...d.data(), id: d.id })),
+          sponsors: sponsors.docs.map((d) => ({ ...d.data(), id: d.id })),
+          isPublic: options.isPublic,
+        });
+        tx.set(paths.publicTournament(db, tid), {
+          ...projection,
+          ...(withTiming ? { timing } : {}),
+          updatedAt: serverTimestamp(),
+        } as never);
       });
-      tx.set(paths.publicTournament(db, tid), {
-        ...projection,
-        updatedAt: serverTimestamp(),
-      } as never);
-    });
+    try {
+      await write(true);
+    } catch (err) {
+      // Ältere Schutzregeln kennen `timing` noch nicht: dann ohne Rundenzeiten veröffentlichen.
+      if (toDataError(err).code !== 'permission_denied') throw err;
+      await write(false);
+    }
   } catch (err) {
     throw toDataError(err);
   }

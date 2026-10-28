@@ -89,6 +89,12 @@ export function toPublicTournament(
         order: s.order,
       }))
       .sort((a, b) => a.order - b.order),
+    timing: {
+      tournamentStartISO: t.schedule.tournamentStartISO,
+      matchMinutes: t.schedule.matchMinutes,
+      turnoverMinutes: t.schedule.turnoverMinutes,
+      roundBreakMinutes: t.schedule.roundBreakMinutes,
+    },
     sourceRevision: t.revision,
   };
 }

@@ -2,6 +2,8 @@ import type { Match } from '../../../domain';
 import { formatTime } from '../../format';
 import { EmptyState, MatchStatusPill, TeamName } from '../../components/ui';
 import { ScheduleFilter, matchesFilter, useScheduleFilter } from '../../components/ScheduleFilter';
+import { RoundTimes } from '../../components/RoundTimes';
+import { roundTimes } from '../../data/logic';
 import { groupByWave } from './LiveTab';
 import type { AdminCtx } from './AdminTournament';
 
@@ -24,7 +26,16 @@ export function ScheduleTab({ ctx }: { ctx: AdminCtx }) {
   const allRounds = [...data.rounds].sort((a, b) => a.number - b.number);
   const rounds = allRounds.filter((r) => filter.round === null || r.number === filter.round);
   const teams = data.teams.map((tm) => ({ id: tm.id, name: tm.name, logo: ctx.teamLogo(tm.id) }));
-  if (allRounds.length === 0) return <EmptyState text="Hier erscheint der Spielplan, sobald die erste Runde ausgelost ist." />;
+  const status = new Map(allRounds.map((r) => [r.number, r.status]));
+  const timeline = <RoundTimes rounds={roundTimes(data)} statusOf={(n) => status.get(n)} timeZone={t.timeZone} />;
+  if (allRounds.length === 0) {
+    return (
+      <>
+        <EmptyState text="Hier erscheinen die Paarungen, sobald die erste Runde ausgelost ist." />
+        {timeline}
+      </>
+    );
+  }
   return (
     <>
       <div className="row no-print">
@@ -32,6 +43,7 @@ export function ScheduleTab({ ctx }: { ctx: AdminCtx }) {
           Drucken
         </button>
       </div>
+      {timeline}
       <ScheduleFilter rounds={allRounds.map((r) => r.number)} teams={teams} value={filter} onChange={setFilter} />
       {rounds.map((r) => {
         const bye = data.byes.find((b) => b.roundId === r.id && (!filter.teamId || b.teamId === filter.teamId));

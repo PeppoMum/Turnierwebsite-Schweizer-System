@@ -14,6 +14,7 @@ import type {
 } from '../../domain';
 import type { TeamStanding } from '../../domain/scoring';
 import type { PairingPreview } from '../../domain/pairing';
+import type { RoundTiming } from '../../domain/schedule';
 
 /** Alles, was die Admin-Ansichten zu einem Turnier brauchen. */
 export interface TournamentData {
@@ -62,6 +63,8 @@ export interface PublicTournamentView {
   matches: PublicMatch[];
   byes: Array<{ roundNumber: number; teamId: string }>;
   standings?: StandingRow[];
+  /** Zeitwerte für die ungefähren Startzeiten aller Runden (fehlt bei älteren Projektionen). */
+  timing?: RoundTiming;
   updatedAt: string;
 }
 

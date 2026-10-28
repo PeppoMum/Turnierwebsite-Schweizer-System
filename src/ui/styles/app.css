@@ -1051,7 +1051,13 @@ input[type='file'].input::file-selector-button {
   width: 100%;
   max-width: 560px;
   max-height: calc(100dvh - 40px);
+  overflow-x: hidden;
   overflow-y: auto;
+  /* Text immer umbrechen, nie seitlich scrollen */
+  white-space: normal;
+  text-align: left;
+  text-transform: none;
+  overflow-wrap: anywhere;
   background: var(--card);
   border: 1px solid var(--ln);
   border-radius: var(--r-card);

@@ -1,5 +1,5 @@
 // Firebase-Umsetzung von AuthService: Anmeldung über src/data/auth.ts, Einladungen über
-// src/data/invitations.ts. Anonyme Logins zählen nicht als angemeldet.
+// src/data/invitations.ts. Anonyme Logins (nur über den Helferlink) zählen nicht als angemeldet.
 import { onAuthStateChanged, type Auth, type User } from 'firebase/auth';
 import type { Firestore } from 'firebase/firestore';
 import type { RoleName } from '../../domain';
@@ -8,9 +8,11 @@ import {
   createHelperInvitation,
   getInvitation,
   invitationProblem,
+  joinWithOpenHelperLink,
   redeemInvitation,
   registerWithEmail,
   sendPasswordReset,
+  signInAnonymous,
   signInWithEmail,
   signInWithGoogle,
   signOut,
@@ -87,6 +89,14 @@ export class FirebaseAuthService implements AuthService {
 
   redeemInvitation(tid: string, inviteId: string): Promise<RoleName> {
     return redeemInvitation(this.db, this.actor(), tid, inviteId);
+  }
+
+  async joinWithHelperLink(tid: string, linkId: string): Promise<void> {
+    // Wer schon angemeldet ist (auch die Turnierleitung), bleibt es; sonst anonym.
+    if (!this.auth.currentUser) await signInAnonymous(this.auth);
+    const u = this.auth.currentUser;
+    if (!u) throw new Error('Die Anmeldung hat nicht geklappt.');
+    await joinWithOpenHelperLink(this.db, { uid: u.uid, email: u.email, anonymous: u.isAnonymous }, tid, linkId);
   }
 
   async createInvitation(tid: string, input: CreateInvitationInput): Promise<string> {

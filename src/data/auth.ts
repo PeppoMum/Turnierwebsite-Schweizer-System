@@ -4,6 +4,7 @@ import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  signInAnonymously,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut as firebaseSignOut,
@@ -19,9 +20,12 @@ export interface ActorSource {
 }
 
 export function firebaseActorSource(auth: Auth): ActorSource {
-  const toActor = () =>
-    auth.currentUser && !auth.currentUser.isAnonymous
-      ? { uid: auth.currentUser.uid, email: auth.currentUser.email }
+  // Anonyme Logins gibt es nur über den Helferlink ohne Anmeldung; sie schreiben als Helfer.
+  const toActor = (): Actor | null =>
+    auth.currentUser
+      ? auth.currentUser.isAnonymous
+        ? { uid: auth.currentUser.uid, email: null, anonymous: true }
+        : { uid: auth.currentUser.uid, email: auth.currentUser.email }
       : null;
   return {
     current: toActor,
@@ -41,6 +45,10 @@ function authError(err: unknown): DataError {
     'auth/too-many-requests': 'Zu viele Versuche. Bitte warte kurz und versuche es dann erneut.',
     'auth/popup-closed-by-user': 'Die Anmeldung wurde abgebrochen.',
     'auth/network-request-failed': 'Keine Verbindung. Bitte prüfe deine Internetverbindung.',
+    'auth/operation-not-allowed':
+      'Helferlinks ohne Anmeldung sind noch nicht freigeschaltet. Die Turnierleitung muss in Firebase die anonyme Anmeldung einschalten.',
+    'auth/admin-restricted-operation':
+      'Helferlinks ohne Anmeldung sind noch nicht freigeschaltet. Die Turnierleitung muss in Firebase die anonyme Anmeldung einschalten.',
   };
   return new DataError('permission_denied', messages[code] ?? 'Die Anmeldung hat nicht geklappt.', {
     cause: err,
@@ -65,5 +73,8 @@ export const signInWithGoogle = (auth: Auth) => wrap(() => signInWithPopup(auth,
 
 export const sendPasswordReset = (auth: Auth, email: string) =>
   wrap(() => sendPasswordResetEmail(auth, email.trim()));
+
+/** Für den Helferlink ohne Anmeldung (Firebase: Anmeldeanbieter „Anonym“ muss aktiv sein). */
+export const signInAnonymous = (auth: Auth) => wrap(() => signInAnonymously(auth));
 
 export const signOut = (auth: Auth) => wrap(() => firebaseSignOut(auth));

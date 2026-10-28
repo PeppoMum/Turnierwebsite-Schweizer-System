@@ -1,13 +1,14 @@
 // Öffentliche Turnierseite (Spezifikation §4.4). Liest nur die öffentliche Projektion, nie die internen Daten.
 import { useMemo, useState } from 'react';
-import type { PublicMatch, PublicTournamentView } from '../../data/types';
+import type { PublicMatch, PublicTournamentView, StandingRow } from '../../data/types';
 import { formatDateShort, formatTime } from '../../format';
 import { useNow, useOnline } from '../../hooks';
 import type { PublicTab } from '../../router';
 import { publicUrl } from '../../router';
-import { Icon } from '../../components/Icon';
 import { Crest, EmptyState, MatchStatusPill, Notice, ShareButton, TeamName, TournamentStatusPill } from '../../components/ui';
 import { StandingsTable, type TeamInfo } from '../../components/StandingsTable';
+import { ScheduleFilter, matchesFilter, useScheduleFilter } from '../../components/ScheduleFilter';
+import { TeamPicker } from '../../components/TeamPicker';
 import { formatQuotient } from '../../../domain/scoring/format';
 
 const FAV_KEY = 'turnier-fav-';
@@ -87,12 +88,6 @@ function BrandBand({ view }: { view: PublicTournamentView }) {
             )}
           </div>
         )}
-      </div>
-      <div className="stripe" aria-hidden>
-        <i style={{ background: '#000', flex: 3 }} />
-        <i style={{ background: 'var(--ac)', flex: 5 }} />
-        <i style={{ background: '#fff', flex: 3 }} />
-        <i style={{ background: '#FF3131', flex: 0.6 }} />
       </div>
     </header>
   );
@@ -190,26 +185,38 @@ function Current({ ctx }: { ctx: Ctx }) {
 
 function Schedule({ ctx }: { ctx: Ctx }) {
   const { view } = ctx;
-  const rounds = [...view.rounds].sort((a, b) => a.number - b.number);
+  const [filter, setFilter] = useScheduleFilter();
+  const allRounds = [...view.rounds].sort((a, b) => a.number - b.number);
+  const rounds = allRounds.filter((r) => filter.round === null || r.number === filter.round);
+  const teamName = filter.teamId ? ctx.teams.get(filter.teamId)?.name : undefined;
   return (
     <>
       <h1 className="page-title">Spielplan</h1>
-      {rounds.length === 0 && <EmptyState text="Der Spielplan erscheint hier, sobald die erste Runde feststeht." />}
+      {allRounds.length === 0 && <EmptyState text="Der Spielplan erscheint hier, sobald die erste Runde feststeht." />}
+      {allRounds.length > 0 && (
+        <ScheduleFilter rounds={allRounds.map((r) => r.number)} teams={pickerTeams(view)} value={filter} onChange={setFilter} />
+      )}
       {rounds.map((r) => {
-        const bye = view.byes.find((b) => b.roundNumber === r.number);
-        const ms = view.matches.filter((m) => m.roundNumber === r.number).sort((a, b) => (a.startISO ?? '').localeCompare(b.startISO ?? '') || (a.fieldId ?? '').localeCompare(b.fieldId ?? ''));
+        const byes = view.byes.filter((b) => b.roundNumber === r.number);
+        const bye = byes.find((b) => !filter.teamId || b.teamId === filter.teamId);
+        const ms = view.matches
+          .filter((m) => m.roundNumber === r.number && matchesFilter(filter, m))
+          .sort((a, b) => (a.startISO ?? '').localeCompare(b.startISO ?? '') || (a.fieldId ?? '').localeCompare(b.fieldId ?? ''));
         return (
           <section key={r.number} className="section">
             <div className="section-head">
               <h2 className="section-title">Runde {r.number}</h2>
               <span className="small-text">{formatTime(r.plannedStartISO, view.tournament.timeZone)} Uhr</span>
             </div>
-            <div className="grid">
-              {ms.map((m) => (
-                <PublicMatchCard key={m.id} ctx={ctx} m={m} />
-              ))}
-            </div>
+            {ms.length > 0 && (
+              <div className="grid">
+                {ms.map((m) => (
+                  <PublicMatchCard key={m.id} ctx={ctx} m={m} />
+                ))}
+              </div>
+            )}
             {bye && <span className="small-text">Freilos: {ctx.teams.get(bye.teamId)?.name}</span>}
+            {ms.length === 0 && !bye && <span className="muted">{teamName ? `${teamName} spielt in dieser Runde nicht.` : 'Keine Spiele.'}</span>}
           </section>
         );
       })}
@@ -218,6 +225,10 @@ function Schedule({ ctx }: { ctx: Ctx }) {
       )}
     </>
   );
+}
+
+function pickerTeams(view: PublicTournamentView) {
+  return view.teams.map((t) => ({ id: t.id, name: t.name, logo: t.logo }));
 }
 
 function readFav(tid: string): string | null {
@@ -231,7 +242,6 @@ function readFav(tid: string): string | null {
 function MyTeam({ ctx }: { ctx: Ctx }) {
   const { view } = ctx;
   const [fav, setFavState] = useState<string | null>(() => readFav(view.tournament.id));
-  const [query, setQuery] = useState('');
   const setFav = (id: string | null) => {
     setFavState(id);
     try {
@@ -243,34 +253,13 @@ function MyTeam({ ctx }: { ctx: Ctx }) {
   };
   const team = fav ? view.teams.find((t) => t.id === fav) : undefined;
 
+  const picker = <TeamPicker label={team ? 'Anderes Team wählen' : 'Team wählen'} teams={pickerTeams(view)} value={fav} onChange={setFav} />;
+
   if (!team) {
-    const q = query.trim().toLowerCase();
-    const list = view.teams.filter((t) => !q || t.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'de'));
     return (
       <>
         <h1 className="page-title">Mein Team</h1>
-        <div className="field">
-          <label className="label" htmlFor="team-search">
-            Team suchen
-          </label>
-          <div style={{ position: 'relative' }}>
-            <input id="team-search" className="input" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Name eingeben" style={{ paddingLeft: 38 }} />
-            <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--mu)', display: 'flex' }}>
-              <Icon name="search" />
-            </span>
-          </div>
-        </div>
-        {list.length === 0 ? (
-          <EmptyState text="Kein Team gefunden. Probier einen anderen Namen." />
-        ) : (
-          <div className="list">
-            {list.map((t) => (
-              <button key={t.id} type="button" className="list-row menu-item" style={{ borderRadius: 0, minHeight: 48 }} onClick={() => setFav(t.id)}>
-                <TeamName name={t.name} logo={t.logo} />
-              </button>
-            ))}
-          </div>
-        )}
+        {picker}
         <p className="small-text">Dein Team merkt sich nur dieses Gerät. Du brauchst kein Konto.</p>
       </>
     );
@@ -291,10 +280,8 @@ function MyTeam({ ctx }: { ctx: Ctx }) {
           <Crest name={team.name} logo={team.logo} large />
           <h1 className="page-title">{team.name}</h1>
         </div>
-        <button type="button" className="btn" onClick={() => setFav(null)}>
-          Anderes Team
-        </button>
       </div>
+      {picker}
       {(team.status === 'withdrawn' || team.status === 'no_show') && <Notice tone="hint" title="Dieses Team spielt nicht mehr mit." />}
       {row && (
         <div className="kpis">
@@ -339,15 +326,46 @@ function MyTeam({ ctx }: { ctx: Ctx }) {
   );
 }
 
+/**
+ * Tabelle vor dem ersten Ergebnis: Die veröffentlichte Tabelle entsteht erst mit dem ersten gewerteten
+ * Spiel. Bis dahin stehen alle Teams ohne Platz und mit 0 Punkten da.
+ */
+function emptyStandings(view: PublicTournamentView): StandingRow[] {
+  return view.teams
+    .map((t) => ({
+      teamId: t.id,
+      name: t.name,
+      status: t.status,
+      rank: null,
+      eligible: t.status === 'active',
+      played: 0,
+      wins: 0,
+      draws: 0,
+      losses: 0,
+      goalsFor: 0,
+      goalsAgainst: 0,
+      goalDiff: 0,
+      points: 0,
+      quotient: null,
+      byes: view.byes.filter((b) => b.teamId === t.id).length,
+      buchholz: null,
+      decidedBy: null,
+    }))
+    .sort((a, b) => Number(b.eligible) - Number(a.eligible) || a.name.localeCompare(b.name, 'de'));
+}
+
 function Table({ ctx }: { ctx: Ctx }) {
   const { view } = ctx;
   const fav = readFav(view.tournament.id) ?? undefined;
-  if (!view.standings) return <EmptyState text="Für dieses Turnier gibt es keine öffentliche Tabelle." />;
-  const showBuchholz = view.standings.some((r) => r.buchholz !== null);
+  const anyResult = view.matches.some((m) => m.status === 'completed');
+  const rows = view.standings ?? (anyResult ? undefined : emptyStandings(view));
+  if (!rows) return <EmptyState text="Die Tabelle wird gerade aktualisiert und erscheint gleich." />;
+  const showBuchholz = rows.some((r) => r.buchholz !== null);
   return (
     <>
       <h1 className="page-title">Tabelle</h1>
-      <StandingsTable rows={view.standings} teams={ctx.teams} showBuchholz={showBuchholz} highlightTeamId={fav} compact />
+      {!view.standings && <span className="muted">Noch kein Spiel beendet. Die Plätze stehen fest, sobald die ersten Ergebnisse da sind.</span>}
+      <StandingsTable rows={rows} teams={ctx.teams} showBuchholz={showBuchholz} highlightTeamId={fav} compact />
       <p className="small-text">Sortiert nach Punkten pro gespieltem Spiel. Freilose und ausgefallene Spiele zählen nicht.</p>
     </>
   );

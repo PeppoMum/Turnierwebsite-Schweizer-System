@@ -8,7 +8,9 @@ rules_version = '2';
 //   eigenen Collections (publicResults, publicStandings), deren Lesbarkeit an den
 //   Sichtbarkeitsmodus gebunden ist. Im Kindermodus sind sie für niemanden lesbar und
 //   dürfen nicht angelegt werden; publicMatches enthalten nie Tore.
-// - Schreiben nur mit echtem Konto (kein anonymer Login) und Rolle je uid + Turnier.
+// - Schreiben nur mit echtem Konto und Rolle je uid + Turnier. Einzige Ausnahme: der optionale
+//   Helferlink ohne Anmeldung (anonymer Login, nur Ergebnis-Helfer, gilt nur solange der Link
+//   im Turnier eingeschaltet ist).
 // - Jede Match-Änderung erhöht `revision` um genau 1 und verweist auf einen Audit-Eintrag,
 //   der im selben Batch/Transaktion entsteht.
 // - Kein `allow write: if true`, keine Hard-Deletes von Turnieren.
@@ -67,30 +69,52 @@ service cloud.firestore {
       return get(grantPath(tid, me())).data;
     }
 
-    function isMember(tid) {
-      return isAccount() && exists(grantPath(tid, me())) && grantActive(myGrant(tid));
+    function isAnonymous() {
+      return signedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous';
     }
 
-    function hasRole(tid, roles) {
-      return isMember(tid) && myGrant(tid).role in roles;
+    // Helferlink ohne Anmeldung: Link-Grants (`openLinkId`, nur anonym anlegbar) gelten nur,
+    // solange das Turnier genau diesen Link hat. Ausschalten oder ein neuer Link sperrt sofort.
+    // Alle anderen Grants brauchen ein echtes Konto.
+    function grantIdentityOk(tid, g) {
+      return g.get('openLinkId', null) == null
+        ? isAccount()
+        : g.openLinkId == get(tournamentPath(tid)).data.get('openHelperLinkId', null);
+    }
+
+    // Gültige Rolle der Person in diesem Turnier, sonst ''. Regeln mit mehreren Rollenprüfungen
+    // berechnen sie einmal und reichen sie weiter (Firestore wertet höchstens 1000 Ausdrücke aus).
+    function myRole(tid) {
+      return signedIn() && exists(grantPath(tid, me()))
+        && grantActive(myGrant(tid)) && grantIdentityOk(tid, myGrant(tid))
+        ? myGrant(tid).role
+        : '';
+    }
+
+    function isMember(tid) {
+      return myRole(tid) != '';
     }
 
     function isOwner(tid) {
-      return hasRole(tid, ['owner']);
+      return myRole(tid) == 'owner';
+    }
+
+    function isHelperRole(role) {
+      return role in ['results_helper', 'extended_helper'];
     }
 
     function isHelper(tid) {
-      return hasRole(tid, ['results_helper', 'extended_helper']);
-    }
-
-    function isExtendedHelper(tid) {
-      return hasRole(tid, ['extended_helper']);
+      return isHelperRole(myRole(tid));
     }
 
     // Runden freigeben: Owner oder erweiterter Helfer mit ausdrücklichem Recht.
+    function canPublishAs(tid, role) {
+      return role == 'owner'
+        || (role == 'extended_helper' && myGrant(tid).get('canPublishRounds', false) == true);
+    }
+
     function canPublish(tid) {
-      return isOwner(tid)
-        || (isExtendedHelper(tid) && myGrant(tid).get('canPublishRounds', false) == true);
+      return canPublishAs(tid, myRole(tid));
     }
 
     // „Nur zugelassene Spiele“: optional auf Felder beschränkt.
@@ -130,6 +154,14 @@ service cloud.firestore {
 
     function validVisibility(v) {
       return v in ['full', 'no_standings', 'kids'];
+    }
+
+    // Geheimer Teil des Helferlinks: null (aus) oder eine lange Zufalls-ID.
+    function validOpenHelperLink(d) {
+      return d.get('openHelperLinkId', null) == null
+        || (d.openHelperLinkId is string
+            && d.openHelperLinkId.size() >= 16
+            && d.openHelperLinkId.size() <= 64);
     }
 
     function validTournamentStatus(v) {
@@ -197,6 +229,7 @@ service cloud.firestore {
         && unchanged(['ownerUid', 'createdAt'])
         && validVisibility(request.resource.data.visibility)
         && validTournamentStatus(request.resource.data.status)
+        && validOpenHelperLink(request.resource.data)
         && (
           (isOwner(tid)
             && request.resource.data.revision == resource.data.revision + 1
@@ -290,17 +323,38 @@ service cloud.firestore {
           == get(tournamentPath(tid)).data.resultsRevision + 1;
       }
 
-      function helperTransitionOk(tid, from, to) {
+      function helperTransitionOk(role, from, to) {
         return [from, to] in [
             ['scheduled', 'live'], ['scheduled', 'completed'], ['scheduled', 'not_played'],
             ['live', 'live'], ['live', 'scheduled'], ['live', 'completed'], ['live', 'not_played']
           ]
           // Korrektur bereits entschiedener Spiele nur durch erweiterte Helfer.
-          || (isExtendedHelper(tid) && [from, to] in [
+          || (role == 'extended_helper' && [from, to] in [
             ['completed', 'completed'], ['completed', 'live'], ['completed', 'scheduled'],
             ['completed', 'not_played'],
             ['not_played', 'not_played'], ['not_played', 'scheduled']
           ]);
+      }
+
+      // Wer darf welche Spieländerung? Die Rolle kommt einmal berechnet herein.
+      function matchChangeAllowed(tid, role) {
+        return
+          // Owner: alles außer zurück in den Entwurf; Paarung nur im Entwurf änderbar.
+          (role == 'owner'
+            && (resource.data.status == 'draft' || request.resource.data.status != 'draft')
+            && (resource.data.status == 'draft'
+                || unchanged(['teamAId', 'teamBId', 'roundId', 'roundNumber'])))
+          // Freigabe: draft -> scheduled.
+          || (canPublishAs(tid, role)
+            && resource.data.status == 'draft'
+            && request.resource.data.status == 'scheduled'
+            && onlyChanges(['status', 'revision', 'updatedAt', 'updatedBy', 'lastAuditId']))
+          // Helfer: nur Score- und Statusfelder.
+          || (isHelperRole(role)
+            && fieldAllowed(tid, resource.data.get('fieldId', null))
+            && helperTransitionOk(role, resource.data.status, request.resource.data.status)
+            && onlyChanges(['status', 'goalsA', 'goalsB', 'completedAt', 'notPlayedReason',
+                            'revision', 'updatedAt', 'updatedBy', 'lastAuditId']));
       }
 
       match /matches/{matchId} {
@@ -320,24 +374,7 @@ service cloud.firestore {
           && scoreFitsStatus(request.resource.data)
           && auditedBy(tid, matchId)
           && (!resultRelevantChange() || resultsCounterBumped(tid))
-          && (
-            // Owner: alles außer zurück in den Entwurf; Paarung nur im Entwurf änderbar.
-            (isOwner(tid)
-              && (resource.data.status == 'draft' || request.resource.data.status != 'draft')
-              && (resource.data.status == 'draft'
-                  || unchanged(['teamAId', 'teamBId', 'roundId', 'roundNumber'])))
-            // Freigabe: draft -> scheduled.
-            || (canPublish(tid)
-              && resource.data.status == 'draft'
-              && request.resource.data.status == 'scheduled'
-              && onlyChanges(['status', 'revision', 'updatedAt', 'updatedBy', 'lastAuditId']))
-            // Helfer: nur Score- und Statusfelder.
-            || (isHelper(tid)
-              && fieldAllowed(tid, resource.data.get('fieldId', null))
-              && helperTransitionOk(tid, resource.data.status, request.resource.data.status)
-              && onlyChanges(['status', 'goalsA', 'goalsB', 'completedAt', 'notPlayedReason',
-                              'revision', 'updatedAt', 'updatedBy', 'lastAuditId']))
-          );
+          && matchChangeAllowed(tid, myRole(tid));
 
         allow delete: if isOwner(tid) && resource.data.status == 'draft';
       }
@@ -363,8 +400,8 @@ service cloud.firestore {
 
       function validGrant(d, grantUid) {
         return d.keys().hasOnly(['uid', 'tournamentId', 'role', 'expiresAt', 'revokedAt',
-                                 'allowedFieldIds', 'canPublishRounds', 'inviteId', 'email',
-                                 'createdAt', 'createdBy'])
+                                 'allowedFieldIds', 'canPublishRounds', 'inviteId', 'openLinkId',
+                                 'email', 'createdAt', 'createdBy'])
           && d.uid == grantUid
           && d.tournamentId == tid
           && d.role in ['owner', 'results_helper', 'extended_helper']
@@ -403,17 +440,46 @@ service cloud.firestore {
           && invAfter.usedBy == me();
       }
 
+      // Helferlink ohne Anmeldung (nur anonym): nur Ergebnis-Helfer für alle Felder, ohne
+      // Ablauf, mit genau dem aktuellen Link des Turniers.
+      function currentOpenLink() {
+        return get(tournamentPath(tid)).data.get('openHelperLinkId', null);
+      }
+
+      function openLinkGrant(d, grantUid) {
+        return isAnonymous()
+          && grantUid == me()
+          && d.get('openLinkId', null) is string
+          && d.openLinkId == currentOpenLink()
+          && d.role == 'results_helper'
+          && d.get('allowedFieldIds', null) == null
+          && d.get('canPublishRounds', false) == false
+          && d.get('expiresAt', null) == null
+          && d.get('revokedAt', null) == null
+          && d.get('inviteId', null) == null
+          && d.get('email', null) == null;
+      }
+
       match /roleGrants/{grantUid} {
-        allow read: if isOwner(tid) || (isAccount() && grantUid == me());
+        allow read: if isOwner(tid) || ((isAccount() || isAnonymous()) && grantUid == me());
         allow create: if validGrant(request.resource.data, grantUid)
           && (isOwner(tid)
               || creatorGrant(request.resource.data, grantUid)
-              || redeemedGrant(request.resource.data, grantUid));
+              || redeemedGrant(request.resource.data, grantUid)
+              || openLinkGrant(request.resource.data, grantUid));
         // Der Ersteller (ownerUid) kann nicht entzogen werden.
-        allow update: if isOwner(tid)
-          && grantUid != get(tournamentPath(tid)).data.ownerUid
-          && unchanged(['uid', 'tournamentId', 'createdAt', 'createdBy', 'inviteId'])
-          && request.resource.data.role in ['owner', 'results_helper', 'extended_helper'];
+        allow update: if (isOwner(tid)
+            && grantUid != get(tournamentPath(tid)).data.ownerUid
+            && unchanged(['uid', 'tournamentId', 'createdAt', 'createdBy', 'inviteId', 'openLinkId'])
+            && request.resource.data.role in ['owner', 'results_helper', 'extended_helper'])
+          // Helfer mit älterem Helferlink wechseln selbst auf den aktuellen Link.
+          || (isAnonymous()
+            && grantUid == me()
+            && resource.data.get('openLinkId', null) is string
+            && resource.data.get('revokedAt', null) == null
+            && onlyChanges(['openLinkId'])
+            && request.resource.data.openLinkId is string
+            && request.resource.data.openLinkId == currentOpenLink());
         allow delete: if isOwner(tid) && grantUid != get(tournamentPath(tid)).data.ownerUid;
       }
 

@@ -69,6 +69,21 @@ Leserecht an den Sichtbarkeitsmodus des öffentlichen Turnierdokuments gebunden 
 - Spielregeln aus §9 stehen zusätzlich in den Regeln: `completed` nur mit zwei ganzzahligen Toren
   0–99, `not_played` nie mit Toren und immer mit Grund, Paarungen freigegebener Spiele unveränderlich.
 
+## Rückgängig im Verlauf
+
+Der Owner kann im Verlauf einzelne Schritte zurücknehmen (Regeln in `src/ui/data/undo.ts`). Rückgängig ist
+immer ein **neuer** Schreibvorgang mit eigenem Audit-Eintrag, der in `after.undoOf` auf den zurückgenommenen
+Eintrag verweist; das Protokoll selbst bleibt unveränderlich. Es braucht keine Regeländerung: alle Schritte
+laufen über die bestehenden Owner-Rechte (Spiel `match.undo`, `team.restore` mit wieder geplanten Spielen,
+`round.reopen` als `closed → active` usw.).
+
+- Je Sache (ein Spiel, Status einer Mannschaft, Sichtbarkeit, …) lässt sich nur der neueste Eintrag
+  zurücknehmen, und nur, solange der aktuelle Stand noch dem `after` des Eintrags entspricht.
+- Ausgeloste Runden bleiben unverändert. Ein zurückgenommenes Ergebnis wirkt wie eine Korrektur: die Tabelle
+  ändert sich, bereits ausgeloste Paarungen nicht (das Fenster weist darauf hin).
+- Rückzüge speichern die ausgefallenen Spiele in `after.matchIds`, damit die Rücknahme genau diese wieder
+  plant (ältere Einträge: Schätzung über `notPlayedReason`).
+
 ## Helfer-Einladungen (§2.3 Punkt 6)
 
 1. Owner erzeugt eine Einladung (`createHelperInvitation`) mit Rolle, optional Feldern und Ablauf

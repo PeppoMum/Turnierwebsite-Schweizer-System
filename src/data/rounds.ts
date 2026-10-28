@@ -2,14 +2,16 @@
 // Vorschauen (Runde `preview`, Spiele `draft`) sind nur intern sichtbar; erst die Freigabe
 // erzeugt die öffentlichen Dokumente.
 import {
+  deleteField,
   doc,
+  getDocs,
   runTransaction,
   serverTimestamp,
   type DocumentSnapshot,
   type Firestore,
 } from 'firebase/firestore';
 import type { PairingDiagnostics, Round } from '../domain';
-import { clean, newTransactionId, writeAudit, type Actor } from './audit';
+import { clean, newTransactionId, undoField, writeAudit, type Actor, type UndoRef } from './audit';
 import { DataError, notFound, toDataError } from './errors';
 import type { MatchDoc, RoundDoc } from './model';
 import { paths } from './paths';
@@ -305,6 +307,49 @@ export async function closeRound(
       tx.set(
         paths.publicRound(db, tid, roundId),
         { status: 'closed', updatedAt: serverTimestamp() },
+        { merge: true },
+      );
+    });
+  } catch (err) {
+    throw toDataError(err);
+  }
+}
+
+/**
+ * Abgeschlossene Runde wieder öffnen („Rückgängig“ im Verlauf). Nur Owner und nur, solange
+ * danach keine weitere Runde ausgelost wurde.
+ */
+export async function reopenRound(
+  db: Firestore,
+  actor: Actor,
+  tid: string,
+  roundId: string,
+  audit: UndoRef = {},
+): Promise<void> {
+  try {
+    const rounds = await getDocs(paths.rounds(db, tid));
+    await runTransaction(db, async (tx) => {
+      const roundRef = paths.round(db, tid, roundId);
+      const rSnap = await tx.get(roundRef);
+      if (!rSnap.exists()) throw notFound('Die Runde');
+      const round = rSnap.data();
+      if (round.status !== 'closed') {
+        throw new DataError('invalid_state', 'Die Runde ist nicht abgeschlossen.');
+      }
+      const drawn = (d: RoundDoc) => d.status !== 'draft' && d.status !== 'preview';
+      if (rounds.docs.some((d) => d.data().number > round.number && drawn(d.data()))) {
+        throw new DataError('invalid_state', 'Danach wurde schon eine weitere Runde ausgelost.');
+      }
+      writeAudit(db, tx, tid, actor, {
+        action: 'round.reopen',
+        targetType: 'round',
+        targetId: roundId,
+        after: { roundNumber: round.number, ...undoField(audit) },
+      });
+      tx.update(roundRef, { status: 'active', closedAt: deleteField(), updatedAt: serverTimestamp() });
+      tx.set(
+        paths.publicRound(db, tid, roundId),
+        { status: 'active', updatedAt: serverTimestamp() },
         { merge: true },
       );
     });

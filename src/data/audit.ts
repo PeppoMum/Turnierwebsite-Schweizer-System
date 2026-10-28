@@ -24,6 +24,16 @@ export interface Actor {
   anonymous?: boolean;
 }
 
+/** Verweis auf den Verlaufseintrag, den eine Änderung rückgängig macht („Rückgängig“ im Verlauf). */
+export interface UndoRef {
+  undoOf?: string;
+}
+
+/** `{ undoOf }` für das `after` eines Audit-Eintrags, leer ohne Verweis. */
+export function undoField(ref: UndoRef = {}): { undoOf?: string } {
+  return ref.undoOf ? { undoOf: ref.undoOf } : {};
+}
+
 export interface AuditInput {
   action: string;
   targetType: AuditDoc['targetType'];

@@ -9,7 +9,7 @@ import {
   type UpdateData,
 } from 'firebase/firestore';
 import type { TournamentStatus, Visibility } from '../domain';
-import { clean, writeAudit, type Actor } from './audit';
+import { clean, undoField, writeAudit, type Actor, type UndoRef } from './audit';
 import { DataError, RevisionConflictError, notFound, toDataError } from './errors';
 import { toTournament } from './mappers';
 import type { PublicStandingRow, TournamentDoc } from './model';
@@ -113,6 +113,7 @@ export async function updateTournamentConfig(
   tid: string,
   expectedRevision: number,
   patch: TournamentConfigPatch,
+  audit: UndoRef = {},
 ) {
   const forbidden = ['ownerUid', 'revision', 'resultsRevision', 'createdAt', 'updatedAt', 'visibility'];
   for (const key of Object.keys(patch)) {
@@ -139,7 +140,7 @@ export async function updateTournamentConfig(
         targetType: 'tournament',
         targetId: tid,
         before: pick(current, Object.keys(patch)),
-        after: patch,
+        after: { ...patch, ...undoField(audit) },
       });
       tx.update(ref, {
         ...clean(patch),
@@ -163,6 +164,7 @@ export async function setTournamentStatus(
   tid: string,
   expectedRevision: number,
   status: TournamentStatus,
+  audit: UndoRef = {},
 ): Promise<number> {
   try {
     const rounds = status === 'finished' ? await getDocs(paths.rounds(db, tid)) : null;
@@ -186,7 +188,7 @@ export async function setTournamentStatus(
         targetType: 'tournament',
         targetId: tid,
         before: { status: current.status },
-        after: { status },
+        after: { status, ...undoField(audit) },
       });
       const update: UpdateData<TournamentDoc> = {
         status,
@@ -270,7 +272,7 @@ export async function setVisibility(
   tid: string,
   expectedRevision: number,
   visibility: Visibility,
-  options: { standings?: { rows: PublicStandingRow[]; throughRound: number } } = {},
+  options: { standings?: { rows: PublicStandingRow[]; throughRound: number } } & UndoRef = {},
 ): Promise<number> {
   try {
     const matches = await getDocs(paths.matches(db, tid));
@@ -293,7 +295,7 @@ export async function setVisibility(
         targetType: 'visibility',
         targetId: tid,
         before: { visibility: current.visibility },
-        after: { visibility },
+        after: { visibility, ...undoField(options) },
       });
       tx.update(tRef, {
         visibility,

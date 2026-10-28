@@ -18,7 +18,9 @@ import {
   publishRound as publishRoundData,
   recordResult,
   reopenMatchForCorrection,
+  reopenRound,
   resetMatchToScheduled,
+  restoreMatchState,
   restoreTeam as restoreTeamData,
   roundIdFor,
   saveAsset,
@@ -44,6 +46,7 @@ import {
   syncPublicTournament,
   toMatch,
   newOpenHelperLinkId,
+  undoField,
   updateTournamentConfig,
   withdrawTeam as withdrawTeamData,
   writeAudit,
@@ -54,6 +57,7 @@ import {
   type MatchDoc,
   type MatchWriteOptions,
   type PreparedAsset,
+  type TournamentConfigPatch,
   type PublicMatchDoc,
   type PublicResultDoc,
   type PublicRoundDoc,
@@ -64,6 +68,7 @@ import {
 } from '../../data';
 import { iso } from '../../data/mappers';
 import { assertDetails, checkedTeamName, movedStartISO, nextTeamId } from './details';
+import { undoCheck } from './undo';
 import { computeStandings, previewNextRound } from './logic';
 import type { TournamentService } from './service';
 import type {
@@ -908,7 +913,11 @@ export class FirestoreTournamentStore implements TournamentService {
     await Promise.all(dropped.map((id) => deleteAsset(this.db, tid, id).catch(() => undefined)));
   }
 
-  async saveTeam(tid: string, teamId: string | null, team: TeamEdit): Promise<void> {
+  saveTeam(tid: string, teamId: string | null, team: TeamEdit): Promise<void> {
+    return this.writeTeam(tid, teamId, team);
+  }
+
+  private async writeTeam(tid: string, teamId: string | null, team: TeamEdit, undoOf?: string): Promise<void> {
     const d = this.data(tid);
     const actor = this.actor();
     const name = checkedTeamName(d, teamId, team);
@@ -930,7 +939,7 @@ export class FirestoreTournamentStore implements TournamentService {
       targetType: 'team',
       targetId: id,
       before: existing ? { name: existing.name } : undefined,
-      after: { teamId: id, name },
+      after: { teamId: id, name, ...undoField({ undoOf }) },
     });
     await batch.commit();
     await this.syncPublicIfShown(tid, d.tournament.status);
@@ -956,6 +965,74 @@ export class FirestoreTournamentStore implements TournamentService {
       before: e.before ?? undefined,
       after: e.after ?? undefined,
     }));
+  }
+
+  async undoHistory(tid: string, entry: HistoryEntry): Promise<void> {
+    const d = this.data(tid);
+    const check = undoCheck(entry, d);
+    if (!check?.ok) throw new DataError('invalid_state', check?.reason ?? 'Dieser Schritt lässt sich nicht rückgängig machen.');
+    const actor = this.actor();
+    const undo = { undoOf: entry.id };
+    const plan = check.plan;
+    switch (plan.kind) {
+      case 'match': {
+        const m = this.match(tid, plan.matchId);
+        await restoreMatchState(this.db, actor, tid, m.id, plan.target, m.revision, { ...this.standingsAfter(tid), ...undo });
+        return;
+      }
+      case 'team-restore': {
+        const teams = d.teams.map((t) => (t.id === plan.teamId ? { ...t, status: 'active' as const } : t));
+        await restoreTeamData(this.db, actor, tid, plan.teamId, {
+          standings: this.standingsFor({ ...d, teams }),
+          reopenMatchIds: plan.reopenMatchIds,
+          ...undo,
+        });
+        return;
+      }
+      case 'team-withdraw': {
+        const teams = d.teams.map((t) => (t.id === plan.teamId ? { ...t, status: 'withdrawn' as const } : t));
+        await withdrawTeamData(this.db, actor, tid, plan.teamId, { standings: this.standingsFor({ ...d, teams }), ...undo });
+        return;
+      }
+      case 'team-rename': {
+        const team = d.teams.find((t) => t.id === plan.teamId);
+        const logo = team?.logoAssetId ? d.assets[team.logoAssetId] : undefined;
+        await this.writeTeam(tid, plan.teamId, { name: plan.name, logo }, entry.id);
+        return;
+      }
+      case 'details': {
+        const t = d.tournament;
+        const startISO = plan.patch.localDate ? movedStartISO(d, plan.patch.localDate) : undefined;
+        await updateTournamentConfig(
+          this.db,
+          actor,
+          tid,
+          t.revision,
+          {
+            ...(plan.patch as TournamentConfigPatch),
+            ...(startISO ? { schedule: { ...t.schedule, tournamentStartISO: startISO } } : {}),
+          },
+          undo,
+        );
+        await this.syncPublicIfShown(tid, t.status);
+        return;
+      }
+      case 'visibility':
+        await setVisibilityData(this.db, actor, tid, d.tournament.revision, plan.visibility, {
+          standings: plan.visibility === 'full' ? this.standingsFor(d) : undefined,
+          ...undo,
+        });
+        return;
+      case 'shift':
+        await shiftFutureMatchesData(this.db, actor, tid, plan.deltaMinutes, undo);
+        return;
+      case 'round-reopen':
+        await reopenRound(this.db, actor, tid, plan.roundId, undo);
+        return;
+      case 'tournament-reopen':
+        await setTournamentStatus(this.db, actor, tid, d.tournament.revision, 'running', undo);
+        return;
+    }
   }
 
   /** Alle Abos beenden (z. B. beim Abmelden oder in Tests). */

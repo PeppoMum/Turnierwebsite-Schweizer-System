@@ -28,3 +28,25 @@ Getrennter Schritt nach der Paarung; die Paarungen werden nie verändert.
 5. Unterschrittene Wunschpausen landen als `restWarnings` mit Teamnamen beim Admin.
 
 Blockierende Probleme (kein Feld, Rundenstart vor Ende der Vorrunde) stehen in `problems`.
+
+## Turnier-Baukasten (`stages.ts`, `skeleton.ts`, `swap.ts`)
+
+| Funktion | Zweck |
+|---|---|
+| `planTournamentDay(format, matches, fields, constraints)` | Ganzen Tag über alle Abschnitte planen, auch Spiele mit Platzhaltern |
+| `previewFormat(format, teamCount, fields, constraints)` | Zahlen für die Live-Skizze: Spiele, Spiele pro Team, Uhrzeit letztes Spiel |
+| `buildFormatSkeleton(format, teamCount)` | Spielgerüst nur für die Vorschau (echte Paarungen kommen aus Gruppen-/K.-o.-Logik) |
+| `swapMatchTimes`, `swapOpponents`, `moveMatch`, `shiftFrom` | Handänderungen; liefern neue Spiele plus Warnungen |
+| `checkStageSchedule(matches)` | Feld doppelt, Team gleichzeitig, zu kurze Pause, K.-o.-Spiel vor seinem Vorgänger |
+
+- Phasen laufen nacheinander (Rundenpause, vor der ersten Endrunde `breakBeforeFinalsMinutes`);
+  Abschnitte derselben Phase teilen sich die Felder.
+- Pro Anstoßzeit bekommt jedes Feld das dringendste bereite Spiel: zuerst ohne zu kurze Pause,
+  dann früherer Spieltag bzw. frühere K.-o.-Runde, dann (mit `evenRest`) wer am längsten
+  gewartet hat, dann höhere Platzierungsspiele vor dem Finale. Takt = längstes Spiel der Welle + Wechselpause.
+- K.-o.-Reihenfolge ergibt sich aus den Sieger-/Verlierer-Platzhaltern (`slotA/B`), nicht aus den Namen.
+- Gruppen mit `fixedFields`: Feld k gehört Gruppe k mod G, wenn mindestens so viele Felder wie Gruppen da sind.
+- Gesperrt sind Spiele mit Status `live`, `completed`, `not_played`, `cancelled`. Handänderungen setzen
+  `manual: true`; `planTournamentDay` lässt solche Spiele (und angepfiffene) stehen und plant drumherum.
+- Gegner tauschen setzt ein bekanntes Team als `{ kind: 'team' }`-Platzhalter, damit das Füllen der Endrunde
+  den Tausch nicht überschreibt.

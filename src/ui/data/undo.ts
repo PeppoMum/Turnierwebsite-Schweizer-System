@@ -11,13 +11,16 @@
 import type { Match, NotPlayedReason, Visibility } from '../../domain';
 import { visibilityLabel } from '../format';
 import { canChangeDate } from './details';
-import type { HistoryEntry, TournamentData } from './types';
+import { isOpen, layoutSnap, sameLayout, stageOf, type LayoutSnap } from './stages';
+import type { GroupDraw, HistoryEntry, TournamentData } from './types';
 
 export interface MatchTarget {
   status: Extract<Match['status'], 'scheduled' | 'live' | 'completed' | 'not_played'>;
   goalsA: number | null;
   goalsB: number | null;
   notPlayedReason: NotPlayedReason | null;
+  /** Nur bei Baukasten-Spielen: wie das Spiel entschieden war. */
+  decided?: { decidedBy: Match['decidedBy'] | null; penaltiesA: number | null; penaltiesB: number | null };
 }
 
 export interface DetailsPatch {
@@ -36,7 +39,10 @@ export type UndoPlan =
   | { kind: 'visibility'; visibility: Visibility }
   | { kind: 'shift'; deltaMinutes: number }
   | { kind: 'round-reopen'; roundId: string }
-  | { kind: 'tournament-reopen' };
+  | { kind: 'tournament-reopen' }
+  /** Ort, Zeit oder Gegner mehrerer Spiele zurück auf `target`; `reopen`: kampflos gewertete Spiele wieder öffnen. */
+  | { kind: 'layout'; target: LayoutSnap[]; current: LayoutSnap[]; reopen: boolean }
+  | { kind: 'group-draw'; draw: Omit<GroupDraw, 'updatedAt'> };
 
 export type UndoCheck =
   | { ok: true; plan: UndoPlan; explain: string; warning?: string }
@@ -56,6 +62,7 @@ const MATCH_ACTIONS = new Set([
   'match.reset',
   'match.undo',
 ]);
+const LAYOUT_ACTIONS = new Set(['match.swap', 'match.swap_teams', 'match.move', 'finals.fill', 'team.withdraw_qualified', 'matches.undo']);
 const DETAIL_KEYS = ['title', 'organizerName', 'venue', 'localDate'] as const;
 const TARGET_STATUSES = new Set(['scheduled', 'live', 'completed', 'not_played']);
 
@@ -65,6 +72,11 @@ const CHANGED_SINCE = 'Das wurde danach noch einmal geändert. Nur die letzte Ä
 function subjectOf(e: HistoryEntry): string | null {
   const after = rec(e.after);
   if (MATCH_ACTIONS.has(e.action)) return `match:${e.targetId}`;
+  if (LAYOUT_ACTIONS.has(e.action)) {
+    const ids = snapsOf(after.matches).map((x) => x.id).sort();
+    return ids.length > 0 ? `layout:${ids.join(',')}` : null;
+  }
+  if (e.action === 'groups.draw') return `groups:${e.targetId}`;
   if (e.action === 'team.withdrawn' || e.action === 'team.no_show' || e.action === 'team.restore') {
     return `team-status:${str(after.teamId) ?? ''}`;
   }
@@ -79,13 +91,24 @@ function subjectOf(e: HistoryEntry): string | null {
   return null;
 }
 
+function snapsOf(v: unknown): LayoutSnap[] {
+  return Array.isArray(v) ? (v as unknown[]).filter((x): x is LayoutSnap => !!x && typeof x === 'object' && typeof (x as Rec).id === 'string') : [];
+}
+
 export function teamNameOf(data: TournamentData, id: unknown): string {
   return data.teams.find((x) => x.id === id)?.name ?? 'ein Team';
 }
 
 export function matchLabelOf(data: TournamentData, id: string): string {
   const m = data.matches.find((x) => x.id === id);
-  return m ? `${teamNameOf(data, m.teamAId)} – ${teamNameOf(data, m.teamBId)} (Runde ${m.roundNumber})` : 'Ein Spiel';
+  if (!m) return 'Ein Spiel';
+  const team = (tid: string) => (tid ? teamNameOf(data, tid) : 'noch offen');
+  const stage = stageOf(data, m.stageId);
+  if (stage) {
+    const group = m.groupIndex !== undefined && stage.kind === 'groups' ? ` Gruppe ${String.fromCharCode(65 + m.groupIndex)}` : '';
+    return `${team(m.teamAId)} – ${team(m.teamBId)} (${stage.name}${group})`;
+  }
+  return `${team(m.teamAId)} – ${team(m.teamBId)} (Runde ${m.roundNumber})`;
 }
 
 /** Spielstand in Worten, z. B. „beendet mit 2:1“. */
@@ -138,9 +161,17 @@ function checkMatch(e: HistoryEntry, data: TournamentData): UndoCheck | null {
     goalsA: status === 'completed' || status === 'live' ? num(before.goalsA) : null,
     goalsB: status === 'completed' || status === 'live' ? num(before.goalsB) : null,
     notPlayedReason: status === 'not_played' ? ((str(before.notPlayedReason) as NotPlayedReason | undefined) ?? 'other') : null,
+    ...('decidedBy' in before
+      ? { decided: { decidedBy: (str(before.decidedBy) as Match['decidedBy']) ?? null, penaltiesA: num(before.penaltiesA), penaltiesB: num(before.penaltiesB) } }
+      : {}),
   };
   if (target.status === 'completed' && (target.goalsA === null || target.goalsB === null)) return null;
-  if (target.status === m.status && target.goalsA === (m.goalsA ?? null) && target.goalsB === (m.goalsB ?? null)) {
+  const sameDecision =
+    !target.decided ||
+    (target.decided.decidedBy === (m.decidedBy ?? null) &&
+      target.decided.penaltiesA === (m.penaltiesA ?? null) &&
+      target.decided.penaltiesB === (m.penaltiesB ?? null));
+  if (target.status === m.status && target.goalsA === (m.goalsA ?? null) && target.goalsB === (m.goalsB ?? null) && sameDecision) {
     return null;
   }
 
@@ -168,6 +199,57 @@ function checkMatch(e: HistoryEntry, data: TournamentData): UndoCheck | null {
       resultChanges && later.length > 0
         ? `${list(later)} ${later.length === 1 ? 'ist' : 'sind'} schon ausgelost. Diese Paarungen bleiben, wie sie sind; es ändert sich nur die Tabelle.`
         : undefined,
+  };
+}
+
+function checkLayout(e: HistoryEntry, data: TournamentData): UndoCheck | null {
+  const target = snapsOf(rec(e.before).matches);
+  const expected = snapsOf(rec(e.after).matches);
+  if (target.length === 0 || target.length !== expected.length) return null;
+  const reopen = e.action === 'team.withdraw_qualified' && rec(e.after).choice === 'walkover';
+  const current: LayoutSnap[] = [];
+  for (const s of expected) {
+    const m = data.matches.find((x) => x.id === s.id);
+    if (!m) return { ok: false, reason: 'Das Spiel gibt es nicht mehr.' };
+    const walkover = reopen && m.status === 'not_played' && m.decidedBy === 'walkover';
+    if (!isOpen(m) && !walkover) return { ok: false, reason: 'Das Spiel ist schon angepfiffen oder vorbei.' };
+    const now = layoutSnap(m);
+    if (!sameLayout(now, s)) return { ok: false, reason: CHANGED_SINCE };
+    current.push(now);
+  }
+  const what =
+    e.action === 'finals.fill'
+      ? 'Die eingetragenen Teams werden wieder entfernt, die Plätze sind danach wieder offen.'
+      : e.action === 'team.withdraw_qualified'
+        ? reopen
+          ? 'Die kampflos gewerteten Spiele sind danach wieder offen. Der Rückzug selbst bleibt; den nimmst du über seinen eigenen Eintrag zurück.'
+          : 'Das zurückgezogene Team steht danach wieder in seinen Spielen. Der Rückzug selbst bleibt; den nimmst du über seinen eigenen Eintrag zurück.'
+        : 'Uhrzeit, Feld und Gegner stehen danach wieder wie vorher.';
+  return { ok: true, plan: { kind: 'layout', target, current, reopen }, explain: what };
+}
+
+function checkGroupDraw(e: HistoryEntry, data: TournamentData): UndoCheck | null {
+  const before = rec(e.before);
+  const after = rec(e.after);
+  if (!Array.isArray(before.groups)) return null;
+  const now = data.groupDraws?.find((g) => g.stageId === e.targetId);
+  if (!now || JSON.stringify(now.groups) !== JSON.stringify(after.groups)) return { ok: false, reason: CHANGED_SINCE };
+  if (data.matches.some((m) => m.stageId === e.targetId && !isOpen(m))) {
+    return { ok: false, reason: 'In diesem Abschnitt wurde schon gespielt. Die Gruppen bleiben, wie sie sind.' };
+  }
+  return {
+    ok: true,
+    plan: {
+      kind: 'group-draw',
+      draw: {
+        stageId: e.targetId,
+        groups: before.groups as string[][],
+        mode: (str(before.mode) as GroupDraw['mode'] | undefined) ?? 'manual',
+        ...(Array.isArray(before.pots) ? { pots: before.pots as string[][] } : {}),
+      },
+    },
+    explain: 'Die Gruppen sind danach wieder so eingeteilt wie vorher.',
+    warning: 'Den Spielplan danach bitte neu berechnen, damit die Spiele zur Einteilung passen.',
   };
 }
 
@@ -333,6 +415,8 @@ export function undoCheck(e: HistoryEntry, data: TournamentData, newest = true):
     }
     case 'round.close':
       return checkRoundClose(e, data);
+    case 'groups.draw':
+      return checkGroupDraw(e, data);
     case 'tournament.status.finished':
       if (t.status !== 'finished') return { ok: false, reason: CHANGED_SINCE };
       return {
@@ -341,6 +425,7 @@ export function undoCheck(e: HistoryEntry, data: TournamentData, newest = true):
         explain: 'Das Turnier läuft danach wieder. Abgeschlossene Runden bleiben abgeschlossen.',
       };
     default:
+      if (LAYOUT_ACTIONS.has(e.action)) return checkLayout(e, data);
       return MATCH_ACTIONS.has(e.action) ? checkMatch(e, data) : null;
   }
 }

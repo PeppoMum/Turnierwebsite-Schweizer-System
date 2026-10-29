@@ -1,5 +1,6 @@
 // Fachliches Datenmodell gemäß Spezifikation §5.
 // IDs sind stabile UUIDs bzw. Firestore-IDs; Teamnamen sind nie Fremdschlüssel.
+import type { StageMatchFields, TournamentFormat } from './format/types';
 
 export type TournamentStatus = 'draft' | 'published' | 'running' | 'finished' | 'archived';
 export type Visibility = 'full' | 'no_standings' | 'kids';
@@ -71,6 +72,8 @@ export interface Tournament {
   revision: number;
   /** Geheimer Teil des Helferlinks ohne Anmeldung; fehlt/null = ausgeschaltet. */
   openHelperLinkId?: string | null;
+  /** Turnier-Baukasten (docs/turnier-baukasten.md). Fehlt = Schweizer System wie bisher. */
+  format?: TournamentFormat;
   publishedAt?: string;
   finishedAt?: string;
   createdAt: string;
@@ -129,7 +132,11 @@ export interface Round {
   pairingDiagnostics?: PairingDiagnostics;
 }
 
-export interface Match {
+/**
+ * Ein Spiel. Im Baukasten kommen die Felder aus `StageMatchFields` dazu; solange ein Platzhalter
+ * (`slotA`/`slotB`) noch nicht aufgelöst ist, ist die zugehörige Team-ID ein leerer String.
+ */
+export interface Match extends Partial<StageMatchFields> {
   id: string;
   roundId: string;
   roundNumber: number;
@@ -144,6 +151,8 @@ export interface Match {
   goalsB?: number;
   completedAt?: string;
   notPlayedReason?: NotPlayedReason;
+  /** Uhrzeit, Feld oder Gegner von Hand geändert: eine Neuberechnung des Spielplans behält sie. */
+  manual?: boolean;
   revision: number;
   createdAt: string;
   updatedAt: string;

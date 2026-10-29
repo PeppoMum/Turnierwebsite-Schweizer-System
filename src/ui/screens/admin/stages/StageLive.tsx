@@ -15,6 +15,7 @@ import type { AdminCtx } from '../AdminTournament';
 import { stageCardProps } from './cardProps';
 import { buildStageModel, groupByTime, isDecided, stageById, useFieldOrder, type StageModel } from './model';
 import { StageNotices } from './StageNotices';
+import { CompactNotice, GroupLossNotice } from './Compact';
 import './stages.css';
 
 export function StageLive({ ctx }: { ctx: AdminCtx }) {
@@ -110,6 +111,8 @@ export function StageLive({ ctx }: { ctx: AdminCtx }) {
         </Notice>
       )}
       <StageNotices ctx={ctx} model={model} />
+      <GroupLossNotice ctx={ctx} />
+      <CompactNotice ctx={ctx} />
       <IssueNotice ctx={ctx} model={model} />
 
       {quick && <span className="small-text">Schnellmodus: Ergebnis eintragen und mit einem Klick beenden.</span>}

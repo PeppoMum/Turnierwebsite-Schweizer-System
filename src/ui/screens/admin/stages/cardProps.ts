@@ -2,7 +2,7 @@
 import type { Match } from '../../../../domain';
 import type { TournamentData } from '../../../data/types';
 import type { FinalsRules } from './FinalsResultDialog';
-import { filledFinalsFrom, isFinalsStage, matchTitle, resultText, sideText, stageById } from './model';
+import { durationNote, filledFinalsFrom, isFinalsStage, matchTitle, resultText, sideText, stageById } from './model';
 
 const CORRECT_GROUP =
   'Ändert sich durch die Korrektur, wer weiterkommt, zeigen wir dir die Änderung danach an und du bestätigst sie. ' +
@@ -19,6 +19,7 @@ export interface StageCardProps {
   finals?: FinalsRules;
   resultLabel: string;
   correctWarning: string | null;
+  durationNote?: string;
 }
 
 export function stageCardProps(d: TournamentData, m: Match, teamName: (id: string) => string): StageCardProps | undefined {
@@ -51,5 +52,6 @@ export function stageCardProps(d: TournamentData, m: Match, teamName: (id: strin
     finals,
     resultLabel: resultText(m, format),
     correctWarning,
+    durationNote: durationNote(m, format, d.tournament.schedule.matchMinutes),
   };
 }

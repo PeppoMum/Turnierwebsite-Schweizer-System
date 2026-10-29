@@ -150,6 +150,7 @@ export function toPublicView(data: TournamentData): PublicTournamentView {
         fieldId: m.fieldId,
         waveIndex: m.waveIndex,
         startISO: m.startISO,
+        durationMinutes: m.durationMinutes,
         status: m.status,
         ...(showScores && isCounted(m) ? { goalsA: m.goalsA, goalsB: m.goalsB } : {}),
         ...(showScores && m.status === 'live' ? { goalsA: m.goalsA ?? 0, goalsB: m.goalsB ?? 0 } : {}),

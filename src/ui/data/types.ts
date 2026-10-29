@@ -121,6 +121,8 @@ export interface PublicMatch extends Partial<StageMatchFields> {
   fieldId?: string;
   waveIndex?: number;
   startISO?: string;
+  /** Spieldauer in Minuten (fehlt bei älteren Projektionen). */
+  durationMinutes?: number;
   status: Match['status'];
   goalsA?: number;
   goalsB?: number;

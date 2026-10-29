@@ -3,9 +3,9 @@
 // Objekte liefern. Schreiben: über die Datenschicht in src/data (Transaktionen, Revision, Audit,
 // öffentliche Projektion). Gäste lesen ausschließlich die öffentliche Projektion.
 import type { Firestore } from 'firebase/firestore';
-import { doc, getDoc, writeBatch } from 'firebase/firestore';
+import { deleteField, doc, getDoc, writeBatch } from 'firebase/firestore';
 import type { Bye, Field, Match, Round, Sponsor, Team, TieBreaker } from '../../domain';
-import { createWaveSchedule, zonedLocalToISO } from '../../domain/schedule';
+import { createWaveSchedule, zonedLocalToISO, type MatchPlacement } from '../../domain/schedule';
 import {
   DataError,
   closeRound,
@@ -91,6 +91,7 @@ import {
   checkKnockoutResult,
   fillSlotsIn,
   moveMatchIn,
+  placeMatchesIn,
   scoreEditDecision,
   swapMatchesIn,
   swapSidesIn,
@@ -543,6 +544,7 @@ export class FirestoreTournamentStore implements TournamentService {
           fieldId: m.fieldId ?? undefined,
           waveIndex: m.waveIndex ?? undefined,
           startISO: m.startISO ?? undefined,
+          ...(typeof m.durationMinutes === 'number' ? { durationMinutes: m.durationMinutes } : {}),
           status: m.status,
           ...(withScore ? { goalsA: r.goalsA!, goalsB: r.goalsB! } : {}),
           ...(showScores && m.status === 'live' && !withScore ? { goalsA: 0, goalsB: 0 } : {}),
@@ -1202,6 +1204,9 @@ export class FirestoreTournamentStore implements TournamentService {
       case 'group-draw':
         await this.saveGroupDraw(tid, plan.draw, entry.id);
         return;
+      case 'team-present':
+        await this.writeTeamPresent(tid, plan.teamId, plan.present, entry.id);
+        return;
     }
   }
 
@@ -1304,6 +1309,31 @@ export class FirestoreTournamentStore implements TournamentService {
     if (before.teams.find((t) => t.id === teamId)?.status === 'active') {
       await withdrawTeamData(this.db, this.actor(), tid, teamId, {});
     }
+  }
+
+  setTeamPresent(tid: string, teamId: string, present: boolean): Promise<void> {
+    return this.writeTeamPresent(tid, teamId, present);
+  }
+
+  private async writeTeamPresent(tid: string, teamId: string, present: boolean, undoOf?: string): Promise<void> {
+    const d = this.data(tid);
+    const team = d.teams.find((t) => t.id === teamId);
+    if (!team) throw new DataError('invalid_input', 'Mannschaft nicht gefunden.');
+    if (Boolean(team.checkedInAt) === present) return;
+    const batch = writeBatch(this.db);
+    batch.update(paths.team(this.db, tid, teamId), { checkedInAt: present ? new Date().toISOString() : deleteField() });
+    writeAudit(this.db, batch, tid, this.actor(), {
+      action: 'team.present',
+      targetType: 'team',
+      targetId: teamId,
+      before: { present: !present },
+      after: { teamId, present, ...undoField({ undoOf }) },
+    });
+    await batch.commit();
+  }
+
+  placeMatches(tid: string, reason: 'compact' | 'longer', placements: MatchPlacement[]): Promise<void> {
+    return this.changeMatches(tid, `schedule.${reason}`, (d) => placeMatchesIn(d, placements));
   }
 
   async publishTournament(tid: string): Promise<void> {

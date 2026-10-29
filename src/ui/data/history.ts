@@ -124,6 +124,14 @@ export function describeHistory(entries: HistoryEntry[], data: TournamentData, m
         return { text: `Uhrzeit oder Feld geändert: ${firstMatches(after)}` };
       case 'finals.fill':
         return { text: `Endrunde gefüllt (${matchCount(after)} ${matchCount(after) === 1 ? 'Spiel' : 'Spiele'})` };
+      case 'schedule.compact':
+        return { text: `Plan gestrafft: ${matchCount(after)} ${matchCount(after) === 1 ? 'Spiel rückt' : 'Spiele rücken'} nach vorne` };
+      case 'schedule.longer': {
+        const mins = Array.isArray(after.matches) ? num((after.matches as Rec[])[0]?.durationMinutes) : undefined;
+        return { text: `Dreiergruppe spielt länger${mins ? ` (${mins} Min.)` : ''}: ${matchCount(after)} ${matchCount(after) === 1 ? 'Spiel' : 'Spiele'}` };
+      }
+      case 'team.present':
+        return { text: after.present ? `${teamName(after.teamId)} ist da` : `${teamName(after.teamId)}: „ist da“ zurückgenommen` };
       case 'matches.undo':
         return { text: `Spiele zurückgesetzt: ${firstMatches(after)}` };
       case 'lot.draw': {

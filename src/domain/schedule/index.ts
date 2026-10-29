@@ -48,3 +48,17 @@ export {
   type ScheduleIssue,
   type CheckOptions,
 } from './swap';
+export {
+  compactStagePlan,
+  earlyStartHints,
+  firstPlannedStarts,
+  longerGroupOptions,
+  longerGroupPlacements,
+  type CompactMatch,
+  type CompactMove,
+  type CompactOptions,
+  type CompactResult,
+  type EarlyStartHint,
+  type LongerGroupOption,
+  type MatchPlacement,
+} from './compact';

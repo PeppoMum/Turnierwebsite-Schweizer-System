@@ -42,7 +42,8 @@ export type UndoPlan =
   | { kind: 'tournament-reopen' }
   /** Ort, Zeit oder Gegner mehrerer Spiele zurück auf `target`; `reopen`: kampflos gewertete Spiele wieder öffnen. */
   | { kind: 'layout'; target: LayoutSnap[]; current: LayoutSnap[]; reopen: boolean }
-  | { kind: 'group-draw'; draw: Omit<GroupDraw, 'updatedAt'> };
+  | { kind: 'group-draw'; draw: Omit<GroupDraw, 'updatedAt'> }
+  | { kind: 'team-present'; teamId: string; present: boolean };
 
 export type UndoCheck =
   | { ok: true; plan: UndoPlan; explain: string; warning?: string }
@@ -62,7 +63,16 @@ const MATCH_ACTIONS = new Set([
   'match.reset',
   'match.undo',
 ]);
-const LAYOUT_ACTIONS = new Set(['match.swap', 'match.swap_teams', 'match.move', 'finals.fill', 'team.withdraw_qualified', 'matches.undo']);
+const LAYOUT_ACTIONS = new Set([
+  'match.swap',
+  'match.swap_teams',
+  'match.move',
+  'finals.fill',
+  'team.withdraw_qualified',
+  'matches.undo',
+  'schedule.compact',
+  'schedule.longer',
+]);
 const DETAIL_KEYS = ['title', 'organizerName', 'venue', 'localDate'] as const;
 const TARGET_STATUSES = new Set(['scheduled', 'live', 'completed', 'not_played']);
 
@@ -81,6 +91,7 @@ function subjectOf(e: HistoryEntry): string | null {
     return `team-status:${str(after.teamId) ?? ''}`;
   }
   if (e.action === 'team.update' || e.action === 'team.add') return `team-name:${e.targetId}`;
+  if (e.action === 'team.present') return `team-present:${e.targetId}`;
   if (e.action === 'tournament.update') {
     return DETAIL_KEYS.some((k) => k in after) ? 'details' : null;
   }
@@ -224,7 +235,11 @@ function checkLayout(e: HistoryEntry, data: TournamentData): UndoCheck | null {
         ? reopen
           ? 'Die kampflos gewerteten Spiele sind danach wieder offen. Der Rückzug selbst bleibt; den nimmst du über seinen eigenen Eintrag zurück.'
           : 'Das zurückgezogene Team steht danach wieder in seinen Spielen. Der Rückzug selbst bleibt; den nimmst du über seinen eigenen Eintrag zurück.'
-        : 'Uhrzeit, Feld und Gegner stehen danach wieder wie vorher.';
+        : e.action === 'schedule.longer'
+          ? 'Die Spiele dauern danach wieder so lange wie vorher.'
+          : e.action === 'schedule.compact'
+            ? 'Die nach vorne gezogenen Spiele stehen danach wieder an ihrer alten Zeit.'
+            : 'Uhrzeit, Feld und Gegner stehen danach wieder wie vorher.';
   return { ok: true, plan: { kind: 'layout', target, current, reopen }, explain: what };
 }
 
@@ -393,6 +408,16 @@ export function undoCheck(e: HistoryEntry, data: TournamentData, newest = true):
         ok: true,
         plan: { kind: 'team-rename', teamId: team.id, name: old },
         explain: `Die Mannschaft heißt danach wieder „${old}“.`,
+      };
+    }
+    case 'team.present': {
+      const team = data.teams.find((x) => x.id === e.targetId);
+      if (!team || typeof after.present !== 'boolean') return null;
+      if (Boolean(team.checkedInAt) !== after.present) return { ok: false, reason: CHANGED_SINCE };
+      return {
+        ok: true,
+        plan: { kind: 'team-present', teamId: team.id, present: !after.present },
+        explain: after.present ? `Bei ${team.name} ist „ist da“ danach nicht mehr abgehakt.` : `${team.name} ist danach wieder als „ist da“ abgehakt.`,
       };
     }
     case 'tournament.update':

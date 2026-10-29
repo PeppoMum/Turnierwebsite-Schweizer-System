@@ -50,3 +50,22 @@ Blockierende Probleme (kein Feld, Rundenstart vor Ende der Vorrunde) stehen in `
   `manual: true`; `planTournamentDay` lässt solche Spiele (und angepfiffene) stehen und plant drumherum.
 - Gegner tauschen setzt ein bekanntes Team als `{ kind: 'team' }`-Platzhalter, damit das Füllen der Endrunde
   den Tausch nicht überschreibt.
+
+## Nach einem Ausfall (`compact.ts`)
+
+| Funktion | Zweck |
+|---|---|
+| `compactStagePlan(matches, { format, nowISO, turnoverMinutes, desiredRestMinutes, presentTeamIds?, keepIds? })` | „Plan straffen“: spätere offene Spiele in frei gewordene Lücken ziehen; liefert Verschiebungen, alte/neue Endzeit, Hinweise und Pausen-Warnungen |
+| `earlyStartHints(original, changed, presentTeamIds)` | „Team ist vielleicht noch nicht da“: ohne Haken früher als sein erstes geplantes Spiel |
+| `longerGroupOptions(matches, groups, { format, turnoverMinutes })` | Dreiergruppen, die ihre offenen Spiele länger spielen könnten (jedes Spiel passt in die freie Zeit auf seinem Feld) |
+| `longerGroupPlacements(matches, option, minutes)` | Neue Dauer für diese Spiele |
+
+- Lücken = Plätze ausgefallener Spiele (`not_played`/`cancelled`) ab jetzt; jede genutzte Lücke hinterlässt eine neue.
+- Je Lücke: zuerst Spiele, deren Teams „ist da“ haben oder nicht vor ihrem ersten geplanten Spiel drankommen,
+  dann ohne neue zu kurze Pause, dann das früheste. Gruppen mit festen Feldern bleiben auf ihrem Feld.
+- Erst nur mit voller Pause (ein Spiel); kürzere Pausen nur, wenn das Turnier dadurch früher fertig wird. Pausen
+  werden nie extra eingebaut.
+- Endet eine Phase früher, rücken spätere Phasen um dieselbe Zeit nach vorne (Pause davor bleibt), solange dort
+  nichts angepfiffen oder von Hand gesetzt ist.
+- `manual` und angepfiffene/beendete Spiele bleiben stehen. Gespeichert über `placeMatches` (Verlauf `schedule.compact`
+  bzw. `schedule.longer`, rückgängig machbar); `manual` wird dabei nicht gesetzt.

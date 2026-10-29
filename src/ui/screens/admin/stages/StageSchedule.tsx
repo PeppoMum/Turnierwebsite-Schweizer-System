@@ -12,7 +12,8 @@ import { Icon } from '../../../components/Icon';
 import { Dialog, EmptyState, MatchStatusPill, Notice } from '../../../components/ui';
 import type { AdminCtx } from '../AdminTournament';
 
-import { STAGE_COLOR, buildStageModel, editableMatches, groupByTime, useFieldOrder, matchTitle, resultText, scheduleCheckOptions, sideText, stageById, winnerSide } from './model';
+import { STAGE_COLOR, buildStageModel, durationNote, editableMatches, groupByTime, useFieldOrder, matchTitle, resultText, scheduleCheckOptions, sideText, stageById, winnerSide } from './model';
+import { CompactNotice } from './Compact';
 import './stages.css';
 
 type Pick = { kind: 'match'; matchId: string } | { kind: 'side'; matchId: string; side: 'A' | 'B' } | null;
@@ -102,6 +103,8 @@ export function StageSchedule({ ctx }: { ctx: AdminCtx }) {
           und das Ziel antippen. Tippst du ein Team an, tauschst du nur dieses Team mit einem Team aus einem anderen Spiel.
         </span>
       )}
+
+      {canEdit && <CompactNotice ctx={ctx} />}
 
       {model.issues.length > 0 && (
         <Notice tone="hint" title={model.issues.length === 1 ? 'Eine Warnung' : `${model.issues.length} Warnungen`}>
@@ -235,6 +238,9 @@ export function StageSchedule({ ctx }: { ctx: AdminCtx }) {
                   ))}
                   <div className="t">
                     <MatchStatusPill status={m.status} />
+                    {durationNote(m, format, t.schedule.matchMinutes) && (
+                      <span className="pill y">{durationNote(m, format, t.schedule.matchMinutes)}</span>
+                    )}
                     {m.manual && <span>von Hand geändert</span>}
                   </div>
                   {open && !pick && (

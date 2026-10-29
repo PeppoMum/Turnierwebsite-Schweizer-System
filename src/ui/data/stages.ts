@@ -8,6 +8,7 @@
 //   damit der Verlauf sie zurücknehmen kann.
 import type { Match, Team } from '../../domain';
 import type { GroupStage, SlotRef, StageConfig } from '../../domain/format';
+import type { MatchPlacement } from '../../domain/schedule';
 import type { GroupDraw, KnockoutResult, MatchMove, MatchSide, PlannedStageMatch, SlotFill, TournamentData, WithdrawalChoice } from './types';
 
 /** Was an einem Spiel von Hand geändert werden kann (für Verlauf und Rückgängig). */
@@ -21,6 +22,8 @@ export interface LayoutSnap {
   startISO: string | null;
   waveIndex: number | null;
   manual: boolean;
+  /** Spieldauer; fehlt bei älteren Verlaufseinträgen (dann wird sie nicht verglichen). */
+  durationMinutes?: number;
 }
 
 export const NOT_FOUND = 'Turnier nicht gefunden';
@@ -37,6 +40,7 @@ export function layoutSnap(m: Match): LayoutSnap {
     startISO: m.startISO ?? null,
     waveIndex: m.waveIndex ?? null,
     manual: m.manual ?? false,
+    durationMinutes: m.durationMinutes,
   };
 }
 
@@ -49,10 +53,17 @@ export function applyLayoutSnap(m: Match, s: LayoutSnap): void {
   m.startISO = s.startISO ?? undefined;
   m.waveIndex = s.waveIndex ?? undefined;
   m.manual = s.manual || undefined;
+  if (typeof s.durationMinutes === 'number') m.durationMinutes = s.durationMinutes;
 }
 
 export function sameLayout(a: LayoutSnap, b: LayoutSnap): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  const plain = (s: LayoutSnap) => {
+    const { durationMinutes: _d, ...rest } = s;
+    void _d;
+    return JSON.stringify(rest);
+  };
+  if (a.durationMinutes === undefined || b.durationMinutes === undefined) return plain(a) === plain(b);
+  return plain(a) === plain(b) && a.durationMinutes === b.durationMinutes;
 }
 
 export function stageOf(d: TournamentData, stageId: string | undefined): StageConfig | undefined {
@@ -333,6 +344,34 @@ export function moveMatchIn(d: TournamentData, matchId: string, move: MatchMove)
   if (move.startISO !== undefined) m.startISO = new Date(move.startISO).toISOString();
   m.manual = true;
   return { before, after: [layoutSnap(m)] };
+}
+
+/**
+ * Mehrere noch nicht angepfiffene Spiele auf einmal neu setzen (Plan straffen, Dreiergruppe spielt länger).
+ * Anders als beim Tauschen von Hand bleibt `manual` unverändert, damit ein späteres Straffen sie wieder bewegen darf.
+ */
+export function placeMatchesIn(d: TournamentData, placements: readonly MatchPlacement[]): { before: LayoutSnap[]; after: LayoutSnap[] } {
+  assertFormat(d);
+  if (placements.length === 0) throw new Error('Es gibt nichts zu ändern.');
+  const touched: Match[] = [];
+  const before: LayoutSnap[] = [];
+  for (const p of placements) {
+    const m = openMatch(d, p.matchId);
+    if (!m.stageId) throw new Error('Das geht nur bei Spielen mit Gruppen oder Endrunde.');
+    if (!d.fields.some((f) => f.id === p.fieldId)) throw new Error('Dieses Feld gibt es nicht.');
+    if (Number.isNaN(Date.parse(p.startISO))) throw new Error('Ungültige Uhrzeit.');
+    if (p.durationMinutes !== undefined && (!Number.isInteger(p.durationMinutes) || p.durationMinutes < 1 || p.durationMinutes > 240)) {
+      throw new Error('Die Spielzeit muss zwischen 1 und 240 Minuten liegen.');
+    }
+    if (touched.includes(m)) continue;
+    before.push(layoutSnap(m));
+    m.fieldId = p.fieldId;
+    m.startISO = new Date(p.startISO).toISOString();
+    if (p.waveIndex !== undefined) m.waveIndex = p.waveIndex;
+    if (p.durationMinutes !== undefined) m.durationMinutes = p.durationMinutes;
+    touched.push(m);
+  }
+  return { before, after: touched.map(layoutSnap) };
 }
 
 /** Bestätigte Endrunden-Füllung eintragen: Team auf die Seite setzen, Platzhalter bleibt zur Anzeige. */

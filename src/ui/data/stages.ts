@@ -275,6 +275,15 @@ function sideSet(m: Match, side: 'A' | 'B', v: { teamId: string; slot?: SlotRef 
   }
 }
 
+/**
+ * Von Hand gesetzte Teams als Platzhalter `team` festhalten, damit eine Neuberechnung der Endrunde
+ * sie stehen lässt (src/domain/knockout/README.md).
+ */
+function pinTeams(m: Match): void {
+  if (m.teamAId) m.slotA = { kind: 'team', teamId: m.teamAId };
+  if (m.teamBId) m.slotB = { kind: 'team', teamId: m.teamBId };
+}
+
 /** Zwei Teams (bzw. Platzhalter) zwischen zwei noch nicht angepfiffenen Spielen tauschen. */
 export function swapSidesIn(d: TournamentData, x: MatchSide, y: MatchSide): { before: LayoutSnap[]; after: LayoutSnap[] } {
   if (x.matchId === y.matchId && x.side === y.side) throw new Error('Bitte zwei verschiedene Teams wählen.');
@@ -288,6 +297,7 @@ export function swapSidesIn(d: TournamentData, x: MatchSide, y: MatchSide): { be
   sideSet(b, y.side, va);
   for (const m of touched) {
     if (m.teamAId && m.teamAId === m.teamBId) throw new Error('Ein Team kann nicht gegen sich selbst spielen.');
+    pinTeams(m);
     m.manual = true;
   }
   return { before, after: touched.map(layoutSnap) };
@@ -329,8 +339,8 @@ export function fillSlotsIn(d: TournamentData, fills: SlotFill[]): { before: Lay
 
 /**
  * Qualifiziertes Team zieht vor seinem Endrunden-Spiel zurück. `walkover`: seine offenen Endrunden-Spiele
- * werden kampflos für den Gegner gewertet (Status `not_played`, Grund `withdrawal`, `decidedBy: walkover`;
- * Sieger ist das andere Team). `replace`: ein Nachrücker übernimmt seine offenen Endrunden-Spiele.
+ * werden kampflos für den Gegner gewertet (Status `not_played`, Grund `withdrawal`, `decidedBy: walkover`,
+ * `walkoverWinner` = die Seite des Gegners). `replace`: ein Nachrücker übernimmt seine offenen Endrunden-Spiele.
  * Offene Gruppenspiele behandelt der normale Rückzug (withdrawTeam).
  */
 export function withdrawQualifiedIn(
@@ -351,8 +361,14 @@ export function withdrawQualifiedIn(
       throw new Error(`${by.name} spielt in dieser Endrunde schon mit.`);
     }
     for (const m of finals) {
-      if (m.teamAId === teamId) m.teamAId = by.id;
-      if (m.teamBId === teamId) m.teamBId = by.id;
+      if (m.teamAId === teamId) {
+        m.teamAId = by.id;
+        m.slotA = { kind: 'team', teamId: by.id };
+      }
+      if (m.teamBId === teamId) {
+        m.teamBId = by.id;
+        m.slotB = { kind: 'team', teamId: by.id };
+      }
       m.manual = true;
     }
   } else {
@@ -360,6 +376,7 @@ export function withdrawQualifiedIn(
       m.status = 'not_played';
       m.notPlayedReason = 'withdrawal';
       m.decidedBy = 'walkover';
+      m.walkoverWinner = m.teamAId === teamId ? 'B' : 'A';
     }
   }
   return { before, after: finals.map(layoutSnap), matchIds: finals.map((m) => m.id) };

@@ -99,6 +99,7 @@ function stageFieldsOf(m: Match, showScores: boolean): Partial<StageMatchFields>
     slotB: m.slotB,
     penaltyOnly: m.penaltyOnly,
     decidedBy: m.decidedBy,
+    walkoverWinner: m.walkoverWinner,
     ...(showScores ? { penaltiesA: m.penaltiesA, penaltiesB: m.penaltiesB } : {}),
   };
   for (const k of Object.keys(out) as (keyof StageMatchFields)[]) if (out[k] === undefined) delete out[k];

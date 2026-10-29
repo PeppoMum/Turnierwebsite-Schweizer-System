@@ -202,13 +202,13 @@ describe('Baukasten in der Datenhaltung', () => {
     const other = data(s).teams.find((t) => !data(s).matches.some((m) => m.stageId === 'endrunde' && (m.teamAId === t.id || m.teamBId === t.id)))!;
     await expect(s.withdrawQualifiedTeam(TID, out, { kind: 'replace', byTeamId: sf1.teamBId })).rejects.toThrow(/schon mit/);
     await s.withdrawQualifiedTeam(TID, out, { kind: 'replace', byTeamId: other.id });
-    expect(match(s, 'SF1').teamAId).toBe(other.id);
+    expect(match(s, 'SF1')).toMatchObject({ teamAId: other.id, slotA: { kind: 'team', teamId: other.id } });
     expect(data(s).teams.find((t) => t.id === out)!.status).toBe('withdrawn');
 
     const s2 = store();
     await fillSemis(s2);
     await s2.withdrawQualifiedTeam(TID, out, { kind: 'walkover' });
-    expect(match(s2, 'SF1')).toMatchObject({ status: 'not_played', decidedBy: 'walkover', teamAId: out });
+    expect(match(s2, 'SF1')).toMatchObject({ status: 'not_played', decidedBy: 'walkover', walkoverWinner: 'B', teamAId: out });
     const entries = await s2.loadHistory(TID);
     const lines = describeHistory(entries, data(s2));
     expect(lines.some((l) => /Gegner kampflos weiter/.test(l.text))).toBe(true);
@@ -218,6 +218,7 @@ describe('Baukasten in der Datenhaltung', () => {
     await s2.undoHistory(TID, walk);
     expect(match(s2, 'SF1')).toMatchObject({ status: 'scheduled', teamAId: out });
     expect(match(s2, 'SF1').decidedBy).toBeUndefined();
+    expect(match(s2, 'SF1').walkoverWinner).toBeUndefined();
   });
 
   it('Lose werden gespeichert und für dieselben Teams ersetzt', async () => {

@@ -32,6 +32,7 @@ function score(v: Rec): string | undefined {
   const pb = num(v.penaltiesB);
   if (v.decidedBy === 'penalties' && pa !== undefined && pb !== undefined) return `${a}:${b}, ${pa}:${pb} n. N.`;
   if (v.decidedBy === 'extra_time') return `${a}:${b} n. V.`;
+  if (v.decidedBy === 'walkover') return `${a}:${b} (kampflos)`;
   return `${a}:${b}`;
 }
 
@@ -78,6 +79,12 @@ export function describeHistory(entries: HistoryEntry[], data: TournamentData, m
         const label = final ? 'Endstand' : 'Zwischenstand';
         return { text: `${label}: ${matchLabel(e.targetId)} ${now ?? ''}`.trim(), isResult: true };
       }
+      case 'match.walkover': {
+        const winner = after.walkoverWinner === 'B' ? 'B' : 'A';
+        const m = data.matches.find((x) => x.id === e.targetId);
+        const name = m ? teamName(winner === 'A' ? m.teamAId : m.teamBId) : 'der Gegner';
+        return { text: `Kampflos gewertet: ${matchLabel(e.targetId)} ${score(after) ?? ''}, Sieg für ${name}`, isResult: true };
+      }
       case 'match.not_played':
         return { text: `Nicht ausgetragen: ${matchLabel(e.targetId)}`, isResult: true };
       case 'match.reopen':
@@ -114,6 +121,10 @@ export function describeHistory(entries: HistoryEntry[], data: TournamentData, m
         const stage = data.tournament.format?.stages.find((x) => x.id === e.targetId)?.name ?? 'Gruppen';
         return { text: `${stage}: Gruppen ${before.groups ? 'neu ' : ''}eingeteilt` };
       }
+      case 'tournament.reshape': {
+        const missing = Array.isArray(after.teams) ? (after.teams as { id: unknown }[]).map((t) => teamName(t.id)) : [];
+        return { text: `Turnier umgestellt: ${str(after.title) ?? 'neuer Plan'}${missing.length > 0 ? ` (ohne ${missing.join(', ')})` : ''}` };
+      }
       case 'schedule.save':
         return { text: `Spielplan gespeichert (${num(after.matchCount) ?? 0} Spiele)` };
       case 'match.swap':
@@ -124,6 +135,14 @@ export function describeHistory(entries: HistoryEntry[], data: TournamentData, m
         return { text: `Uhrzeit oder Feld geändert: ${firstMatches(after)}` };
       case 'finals.fill':
         return { text: `Endrunde gefüllt (${matchCount(after)} ${matchCount(after) === 1 ? 'Spiel' : 'Spiele'})` };
+      case 'schedule.compact':
+        return { text: `Plan gestrafft: ${matchCount(after)} ${matchCount(after) === 1 ? 'Spiel rückt' : 'Spiele rücken'} nach vorne` };
+      case 'schedule.longer': {
+        const mins = Array.isArray(after.matches) ? num((after.matches as Rec[])[0]?.durationMinutes) : undefined;
+        return { text: `Dreiergruppe spielt länger${mins ? ` (${mins} Min.)` : ''}: ${matchCount(after)} ${matchCount(after) === 1 ? 'Spiel' : 'Spiele'}` };
+      }
+      case 'team.present':
+        return { text: after.present ? `${teamName(after.teamId)} ist da` : `${teamName(after.teamId)}: „ist da“ zurückgenommen` };
       case 'matches.undo':
         return { text: `Spiele zurückgesetzt: ${firstMatches(after)}` };
       case 'lot.draw': {

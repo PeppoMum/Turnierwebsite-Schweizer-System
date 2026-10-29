@@ -59,6 +59,32 @@ Stand 29.10.2026, mit Phil abgestimmt. Ausführliche Beschreibung: Claude Doc �
 - Zurückgezogenes Team in der Gruppe: Regel von heute (alle seine Spiele zählen für niemanden). Qualifiziertes
   Team zieht vor seinem Endrunden-Spiel zurück: Turnierleitung wählt im Moment „Gegner kampflos weiter“ oder
   „Nächstbester rückt nach“.
+- Haken „ist da“ je Team (Teams-Reiter, nur Turnierleitung, im Verlauf). Rückt ein Spiel nach vorne und ein
+  Team ohne Haken spielt dadurch früher als sein erstes geplantes Spiel: nur Hinweis „vielleicht noch nicht da“.
+- Ausfall in der Gruppenphase: Hinweis „Plan straffen“ mit Vorschau (Spiele, alte und neue Endzeit). Spätere
+  Spiele rücken in die Lücken, Teams mit „ist da“ zuerst; wenn möglich ein Spiel Pause, Pausen nie extra
+  eingebaut (kürzere Pause nur, wenn das Turnier dadurch früher fertig wird). Spätere Phasen rücken mit nach vorne.
+  Handänderungen und angepfiffene Spiele bleiben. Fehlt dadurch einer Endrunde ein Team, sagt die Seite das und
+  führt zum Anpassen (Dreiergruppe oder streichen).
+- „Dreiergruppe spielt länger“ (Haken im Straffen-Fenster, standardmäßig aus): nur wenn jedes offene Spiel der
+  Gruppe in die frei gewordene Zeit auf seinem Feld passt; Vorschlag 1,5-fache Spielzeit. Takt und Pausen aller
+  anderen bleiben, Wertung unverändert. Längere Spielzeit steht im Spielplan, bei Helfern und Zuschauern.
+- Team kommt zu spät (Knopf „Team fehlt“ an jedem noch nicht beendeten Gruppenspiel, nur Turnierleitung):
+  entweder „Spiel nach hinten tauschen“ (Vorschläge: spätere, noch nicht angepfiffene Spiele derselben Gruppe
+  ohne das späte Team; nie ein Team zweimal gleichzeitig; Hinweis, wenn ein Team dadurch vor seinem bisher ersten
+  Spiel dran ist; src/domain/schedule/late.ts) oder „Kampflos werten“: 2:0 für den Gegner, das Team bleibt im
+  Turnier, zählt in der Tabelle wie ein normales Ergebnis (Entscheidung Phil, 29.10.2026). Gespeichert als
+  beendetes Spiel mit Toren und `decidedBy: 'walkover'`/`walkoverWinner` (src/domain/groups/walkover.ts),
+  Anzeige „2:0 (kampflos)“. „Korrigieren“ setzt es auf „geplant“ zurück; beides im Verlauf rückgängig machbar.
+- „Turnier umstellen“ (Knopf in der Turnierleitung, src/domain/format/reshape.ts): fehlende Teams anhaken, die
+  Seite zeigt 2–3 Vorschläge mit Spielzahl und neuer Endzeit. 16 → 15: erst 3 Gruppen mit je 5 (Gruppe mit dem
+  fehlenden Team wird aufgelöst), dann „Lücke lassen“ (übrige Spiele bleiben zu ihrer Zeit). Ab 3 Fehlenden zuerst
+  die nächstkleinere Vorlage. Nie eine Gruppe mit 2 Teams (ein Team wechselt, das mit den geringsten
+  Zeitänderungen). Endrunden behalten ihre Größe, solange genug Teams da sind (Gold zuerst, z. B. „der drittbeste
+  Dritte“ über `best.fromRank`); 3 Teams = Dreiergruppe oder streichen (geteilte Plätze), 2 = ein Spiel, sonst K.-o.
+  4/8 plus Rest (Notlösung). Fehlt bei einem Platzierungsspiel der Gegner: Platz ohne Spiel (`PlacementStage.byes`).
+  Nach dem ersten Anpfiff in der Vorrunde ändert sich nur die Endrunde. Ein Verlaufseintrag, rückgängig, solange
+  danach nicht gespielt wurde.
 
 ## Zuschauerseite
 

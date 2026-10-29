@@ -259,7 +259,7 @@ export function resultNote(m: PublicMatch, long = false): string | undefined {
     return long ? `${m.penaltiesA}:${m.penaltiesB} nach Neunmeterschießen` : `${m.penaltiesA}:${m.penaltiesB} n. N.`;
   }
   if (m.decidedBy === 'extra_time') return long ? 'nach Verlängerung' : 'n. V.';
-  if (m.decidedBy === 'walkover') return 'kampflos';
+  if (m.decidedBy === 'walkover') return long ? 'Kampflos gewertet' : 'kampflos';
   return undefined;
 }
 

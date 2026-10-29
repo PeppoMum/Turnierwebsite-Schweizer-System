@@ -5,7 +5,9 @@ import { useService } from '../../data/context';
 import { formatTime } from '../../format';
 import { Icon } from '../../components/Icon';
 import { Dialog, MatchStatusPill, Notice, TeamName } from '../../components/ui';
+import type { TournamentData } from '../../data/types';
 import { FinalsResultDialog, type FinalsRules } from './stages/FinalsResultDialog';
+import { LateTeamDialog } from './stages/LateTeam';
 
 const REASONS: Array<{ value: NotPlayedReason; label: string }> = [
   { value: 'no_show', label: 'Team nicht erschienen' },
@@ -60,6 +62,8 @@ export function MatchCard({
   finals,
   resultLabel,
   correctWarning,
+  durationNote,
+  lateTeamData,
 }: {
   tid: string;
   match: Match;
@@ -73,6 +77,8 @@ export function MatchCard({
   canCorrect?: boolean;
   /** Baukasten: Abschnitt und Spiel, z. B. „Endrunde · Halbfinale 1“. */
   title?: string;
+  /** Baukasten: Hinweis auf eine andere Spielzeit als üblich, z. B. „18 Min. Spielzeit“. */
+  durationNote?: string;
   /** Baukasten: Anzeigenamen, auch für Platzhalter wie „1. Gruppe A“. */
   nameA?: string;
   nameB?: string;
@@ -82,6 +88,8 @@ export function MatchCard({
   resultLabel?: string;
   /** Hinweis vor dem Korrigieren, z. B. wenn die Endrunde schon gefüllt ist. */
   correctWarning?: string | null;
+  /** Baukasten, nur Turnierleitung: Knopf „Team fehlt“ (nach hinten tauschen oder kampflos werten). */
+  lateTeamData?: TournamentData;
 }) {
   const service = useService();
   const [notPlayedOpen, setNotPlayedOpen] = useState(false);
@@ -91,6 +99,7 @@ export function MatchCard({
   const [draftB, setDraftB] = useState(match.goalsB ?? 0);
   const [finalsOpen, setFinalsOpen] = useState(false);
   const [correctOpen, setCorrectOpen] = useState(false);
+  const [lateOpen, setLateOpen] = useState(false);
   const shownA = nameA ?? teamName(match.teamAId);
   const shownB = nameB ?? teamName(match.teamBId);
   const teamsKnown = Boolean(match.teamAId && match.teamBId);
@@ -118,6 +127,7 @@ export function MatchCard({
       <div className="match-meta">
         <span style={{ fontWeight: 600, color: 'var(--tx)' }}>{fieldName}</span>
         <span>{formatTime(match.startISO, timeZone)}</span>
+        {durationNote && <span className="pill y">{durationNote}</span>}
         <span className="spacer" />
         <MatchStatusPill status={match.status} />
       </div>
@@ -152,9 +162,18 @@ export function MatchCard({
         </div>
       )}
 
-      {resultLabel && match.status === 'completed' && resultLabel !== `${ga}:${gb}` && <span className="small-text result-note">{resultLabel}</span>}
+      {resultLabel && match.status === 'completed' && match.decidedBy !== 'walkover' && resultLabel !== `${ga}:${gb}` && (
+        <span className="small-text result-note">{resultLabel}</span>
+      )}
       {!teamsKnown && match.status === 'scheduled' && <span className="small-text">Die Teams stehen noch nicht fest.</span>}
-      {match.decidedBy === 'walkover' && <span className="small-text">Kampflos gewertet: Der Gegner hat zurückgezogen.</span>}
+      {match.decidedBy === 'walkover' &&
+        (match.status === 'completed' ? (
+          <span className="small-text">
+            Kampflos gewertet: {match.walkoverWinner === 'B' ? shownA : shownB} war nicht da und bleibt im Turnier.
+          </span>
+        ) : (
+          <span className="small-text">Kampflos gewertet: Der Gegner hat zurückgezogen.</span>
+        ))}
       {match.status === 'not_played' && match.decidedBy !== 'walkover' && (
         <span className="small-text">Grund: {REASONS.find((r) => r.value === match.notPlayedReason)?.label ?? 'nicht angegeben'}. Zählt für keins der beiden Teams.</span>
       )}
@@ -200,6 +219,12 @@ export function MatchCard({
               Nach Verlängerung beenden
             </button>
           )}
+          {editable && !finals && lateTeamData && match.stageId && (
+            <button type="button" className="btn" onClick={() => setLateOpen(true)}>
+              <Icon name="clock" />
+              Team fehlt
+            </button>
+          )}
           {editable && !finals && (
             <button type="button" className="btn" onClick={() => setNotPlayedOpen(true)}>
               Nicht ausgetragen
@@ -216,6 +241,10 @@ export function MatchCard({
 
       {finalsOpen && finals && (
         <FinalsResultDialog tid={tid} match={match} nameA={shownA} nameB={shownB} rules={finals} onClose={() => setFinalsOpen(false)} />
+      )}
+
+      {lateOpen && lateTeamData && (
+        <LateTeamDialog data={lateTeamData} match={match} nameA={shownA} nameB={shownB} onClose={() => setLateOpen(false)} />
       )}
 
       {correctOpen && (

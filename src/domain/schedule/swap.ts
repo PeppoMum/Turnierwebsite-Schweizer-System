@@ -13,6 +13,8 @@ import { validateSchedule, type ValidateScheduleOptions } from './validate';
 export interface EditableMatch {
   id: string;
   stageId: string;
+  /** Gruppe innerhalb eines Gruppenabschnitts (nur für Vorschläge wie „Spiel nach hinten tauschen“). */
+  groupIndex?: number;
   matchKey?: string;
   teamAId?: string;
   teamBId?: string;

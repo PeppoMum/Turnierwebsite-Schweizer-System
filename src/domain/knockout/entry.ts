@@ -54,7 +54,8 @@ export function entrySlots(rule: EntryRule, source: StageConfig, sourceTableSize
     }
     for (const b of rule.best ?? []) {
       if (b.place !== place) continue;
-      for (let rank = 1; rank <= b.count; rank++) slots.push({ kind: 'best_of_place', stageId: source.id, place, rank });
+      const first = b.fromRank ?? 1;
+      for (let rank = first; rank < first + b.count; rank++) slots.push({ kind: 'best_of_place', stageId: source.id, place, rank });
     }
   }
   return slots;
@@ -161,7 +162,7 @@ function groupLetter(group: number): string {
 /** Wie viele Teams ein Abschnitt aufnimmt; `null` = beliebig viele (Gruppen, Finalgruppe). */
 export function stageCapacity(stage: StageConfig): number | null {
   if (stage.kind === 'knockout') return stage.size;
-  if (stage.kind === 'placement') return stage.matches.length * 2;
+  if (stage.kind === 'placement') return stage.matches.length * 2 + (stage.byes?.length ?? 0);
   return null;
 }
 
@@ -209,8 +210,9 @@ export function validateFormat(format: TournamentFormat, teamCount: number): For
     }
     for (const b of rule.best ?? []) {
       const available = tables.filter((size) => size >= b.place).length - (rule.places.includes(b.place) ? tables.length : 0);
-      if (b.count > available) {
-        add('best_too_many', `${stage.name}: Es gibt nur ${Math.max(available, 0)} Teams auf Platz ${b.place}, nicht ${b.count}.`);
+      const skipped = (b.fromRank ?? 1) - 1;
+      if (b.count + skipped > available) {
+        add('best_too_many', `${stage.name}: Es gibt nur ${Math.max(available, 0)} Teams auf Platz ${b.place}, nicht ${b.count + skipped}.`);
       }
     }
     const capacity = stageCapacity(stage);
@@ -237,12 +239,18 @@ export function validateFormat(format: TournamentFormat, teamCount: number): For
     for (const b of rule.best ?? []) {
       const key = `${source.id}|best|${b.place}`;
       const fixedOwner = [...taken.entries()].find(([k, s]) => k.startsWith(`${source.id}|${b.place}|`) && s.phase === stage.phase && s !== stage)?.[1];
-      const other = taken.get(key);
-      if (other && other.phase === stage.phase) {
+      // Mehrere Abschnitte dürfen sich einen Platz teilen, solange sich die Ränge nicht überschneiden
+      // (Gold die zwei besten Dritten, Silber ab dem drittbesten).
+      const first = b.fromRank ?? 1;
+      const other = Array.from({ length: b.count }, (_, i) => taken.get(`${key}|${first + i}`)).find((s) => s && s.phase === stage.phase);
+      if (other) {
         add('slot_taken_twice', `Die besten Teams auf Platz ${b.place} kommen in ${other.name} und in ${stage.name} vor.`);
       } else if (fixedOwner) {
         add('slot_taken_twice', `Platz ${b.place} geht schon fest in ${fixedOwner.name}, kann also nicht zusätzlich in ${stage.name} verglichen werden.`);
-      } else if (!other) taken.set(key, stage);
+      } else {
+        if (!taken.has(key)) taken.set(key, stage);
+        for (let i = 0; i < b.count; i++) taken.set(`${key}|${first + i}`, stage);
+      }
     }
 
     if (stage.placeRange) {

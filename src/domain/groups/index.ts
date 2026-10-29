@@ -10,3 +10,5 @@ export { calculateGroupStageStandings } from './stage';
 export type { GroupStageStandings, GroupStageStandingsInput, StageMatch } from './stage';
 export { crossoverGroups } from './crossover';
 export { GROUP_LOT_EXPLANATION, GROUP_TIE_BREAKER_LABELS, HEAD_TO_HEAD_EXPLANATION, TIE_BREAK_VARIANT_LABELS } from './labels';
+export { WALKOVER_GOALS, isScoredWalkover, scoredWalkover } from './walkover';
+export type { ScoredWalkover } from './walkover';

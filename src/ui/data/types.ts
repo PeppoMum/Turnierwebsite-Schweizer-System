@@ -76,6 +76,19 @@ export interface PlannedStageMatch extends StageMatchFields {
   manual?: boolean;
 }
 
+/** „Turnier umstellen“ übernehmen (Vorschlag aus src/ui/screens/admin/stages/reshape.ts). */
+export interface ReshapeChange {
+  /** Name des Vorschlags für den Verlauf, z. B. „3 Gruppen mit je 5“. */
+  title: string;
+  format: TournamentFormat;
+  /** Neue Einteilung der Vorrunde; fehlt = bleibt. */
+  groups?: string[][];
+  /** Teams, die nicht erschienen sind (vorher aktiv). */
+  missingTeamIds: string[];
+  /** Alle noch nicht angepfiffenen Baukasten-Spiele danach. */
+  plan: PlannedStageMatch[];
+}
+
 /** Ergebnis eines Endrunden-Spiels mit Verlängerung oder Neunmeterschießen. */
 export interface KnockoutResult {
   /** Stand nach regulärer Spielzeit bzw. nach Verlängerung. Bei reinen Neunmeterspielen 0:0. */
@@ -121,6 +134,8 @@ export interface PublicMatch extends Partial<StageMatchFields> {
   fieldId?: string;
   waveIndex?: number;
   startISO?: string;
+  /** Spieldauer in Minuten (fehlt bei älteren Projektionen). */
+  durationMinutes?: number;
   status: Match['status'];
   goalsA?: number;
   goalsB?: number;

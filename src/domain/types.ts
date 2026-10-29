@@ -88,6 +88,8 @@ export interface Team {
   status: TeamStatus;
   joinedAt: string;
   withdrawnAt?: string;
+  /** Turnierleitung hat „ist da“ abgehakt (Zeitpunkt); fehlt = noch nicht abgehakt. */
+  checkedInAt?: string;
   externalNote?: string;
   seed?: number;
 }

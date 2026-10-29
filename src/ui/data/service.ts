@@ -3,6 +3,9 @@
 // Schreibfehler (fehlende Rechte, inzwischen geänderte Daten) als Error mit deutscher, verständlicher Meldung werfen;
 // die Oberfläche zeigt sie an.
 import type { MatchStatus, NotPlayedReason, Visibility } from '../../domain';
+import type { MatchPlacement } from '../../domain/schedule';
+
+type MatchSideKey = 'A' | 'B';
 import type {
   GroupDraw,
   HistoryEntry,
@@ -13,6 +16,7 @@ import type {
   PairingPreview,
   PlannedStageMatch,
   PublicTournamentView,
+  ReshapeChange,
   SlotFill,
   TeamEdit,
   TournamentData,
@@ -81,6 +85,11 @@ export interface TournamentService {
   saveStagePlan(tid: string, matches: PlannedStageMatch[]): Promise<string[]>;
   /** Endrunden-Spiel mit Sieger beenden, auch nach Verlängerung oder Neunmeterschießen. */
   finishKnockoutMatch(tid: string, matchId: string, result: KnockoutResult): Promise<void>;
+  /**
+   * Gruppenspiel kampflos werten: `winner` gewinnt 2:0, das andere Team bleibt im Turnier (anders als
+   * beim Rückzug). Zählt in der Tabelle wie ein normales Ergebnis; „Korrigieren“ setzt es auf „geplant“ zurück.
+   */
+  recordWalkover(tid: string, matchId: string, winner: MatchSideKey): Promise<void>;
   /** Zwei noch nicht angepfiffene Spiele tauschen Uhrzeit und Feld. */
   swapMatches(tid: string, matchIdA: string, matchIdB: string): Promise<void>;
   /** Zwei Teams (oder Platzhalter) zwischen noch nicht angepfiffenen Spielen tauschen. */
@@ -93,6 +102,18 @@ export interface TournamentService {
   saveLot(tid: string, lot: Omit<LotDecision, 'id' | 'atISO'>): Promise<void>;
   /** Qualifiziertes Team zieht vor seinem Endrunden-Spiel zurück: Gegner kampflos weiter oder Nachrücker. */
   withdrawQualifiedTeam(tid: string, teamId: string, choice: WithdrawalChoice): Promise<void>;
+  /** Haken „ist da“ für eine Mannschaft setzen oder entfernen (nur Turnierleitung, steht im Verlauf). */
+  setTeamPresent(tid: string, teamId: string, present: boolean): Promise<void>;
+  /**
+   * Mehrere noch nicht angepfiffene Spiele auf einmal neu setzen: `compact` = Plan straffen nach einem
+   * Ausfall, `longer` = Dreiergruppe spielt länger. Vorschläge kommen aus src/domain/schedule/compact.ts.
+   */
+  placeMatches(tid: string, reason: 'compact' | 'longer', placements: MatchPlacement[]): Promise<void>;
   /** Gruppen und Spielplan für Zuschauer freigeben. */
   publishTournament(tid: string): Promise<void>;
+  /**
+   * „Turnier umstellen“: fehlende Teams als nicht erschienen markieren, Format, Einteilung der Vorrunde und alle
+   * noch nicht angepfiffenen Spiele in einem Schritt ersetzen. Ein Eintrag im Verlauf, rückgängig machbar.
+   */
+  reshapeTournament(tid: string, change: ReshapeChange): Promise<void>;
 }

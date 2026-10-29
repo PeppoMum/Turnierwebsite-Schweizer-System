@@ -1,6 +1,7 @@
 // Ansichtsdaten der Zuschauerseite, gemeinsam für alle Reiter.
 import type { PublicMatch, PublicTournamentView } from '../../data/types';
 import type { TeamInfo } from '../../components/StandingsTable';
+import { durationNote } from '../../format';
 import { STAGE_COLORS, type SideView, type StageModel } from './stageView';
 
 export interface Ctx {
@@ -34,4 +35,9 @@ export function stageColorOf(ctx: Ctx, m: PublicMatch): string | undefined {
   const stage = ctx.model?.stageOf(m.stageId);
   if (!stage || stage.phase === 0 || stage.color === 'neutral') return undefined;
   return STAGE_COLORS[stage.color];
+}
+
+/** „18 Min. Spielzeit“, wenn das Spiel anders lang dauert als üblich. */
+export function durationOf(ctx: Ctx, m: PublicMatch): string | undefined {
+  return durationNote(m, ctx.view.format, ctx.view.timing?.matchMinutes);
 }

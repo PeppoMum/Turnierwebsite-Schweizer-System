@@ -61,7 +61,12 @@ function hasDecision(m: MatchDoc): boolean {
 /** Entscheidung für Verlauf und Rückgängig (nur bei Baukasten-Spielen). */
 function decisionSnap(m: MatchDoc): Record<string, unknown> {
   return m.stageId
-    ? { decidedBy: m.decidedBy ?? null, penaltiesA: m.penaltiesA ?? null, penaltiesB: m.penaltiesB ?? null }
+    ? {
+        decidedBy: m.decidedBy ?? null,
+        penaltiesA: m.penaltiesA ?? null,
+        penaltiesB: m.penaltiesB ?? null,
+        ...(m.walkoverWinner ? { walkoverWinner: m.walkoverWinner } : {}),
+      }
     : {};
 }
 
@@ -143,7 +148,12 @@ async function mutateMatch(
             revision,
             ...(current.stageId
               ? 'decided' in patch
-                ? { decidedBy: patch.decided?.decidedBy ?? null, penaltiesA: patch.decided?.penaltiesA ?? null, penaltiesB: patch.decided?.penaltiesB ?? null }
+                ? {
+                    decidedBy: patch.decided?.decidedBy ?? null,
+                    penaltiesA: patch.decided?.penaltiesA ?? null,
+                    penaltiesB: patch.decided?.penaltiesB ?? null,
+                    ...(patch.decided?.walkoverWinner ? { walkoverWinner: patch.decided.walkoverWinner } : {}),
+                  }
                 : decisionSnap(current)
               : {}),
             ...undoField(options),
@@ -301,6 +311,43 @@ export function recordResult(
   );
 }
 
+/**
+ * Gruppenspiel kampflos werten (Team kommt nicht, bleibt aber im Turnier): beendet mit 2:0 für den
+ * Gegner, `decidedBy: 'walkover'`. Zählt in der Tabelle wie ein normales Ergebnis.
+ */
+export function recordWalkover(
+  db: Firestore,
+  actor: Actor,
+  tid: string,
+  matchId: string,
+  result: { goalsA: number; goalsB: number; walkoverWinner: 'A' | 'B' },
+  expectedRevision: number,
+  options?: MatchWriteOptions,
+) {
+  return mutateMatch(
+    db,
+    actor,
+    tid,
+    matchId,
+    expectedRevision,
+    'match.walkover',
+    (m) => {
+      if (m.status !== 'scheduled' && m.status !== 'live') {
+        throw new DataError('invalid_state', 'Nur Spiele, die noch nicht beendet sind, lassen sich kampflos werten.');
+      }
+      return {
+        status: 'completed',
+        goalsA: result.goalsA,
+        goalsB: result.goalsB,
+        notPlayedReason: null,
+        completedAt: 'now',
+        decided: { decidedBy: 'walkover', walkoverWinner: result.walkoverWinner, penaltiesA: null, penaltiesB: null },
+      };
+    },
+    options,
+  );
+}
+
 /** Nicht ausgetragen: für beide Teams kein Spiel, keine Punkte, keine Tore (§2.1). */
 export function markMatchNotPlayed(
   db: Firestore,
@@ -358,6 +405,10 @@ export function reopenMatchForCorrection(
     expectedRevision,
     'match.reopen',
     (m) => {
+      // Kampflos gewertetes Gruppenspiel: zurück auf „geplant“, die 2:0 waren nie ein Spielstand.
+      if (m.status === 'completed' && m.decidedBy === 'walkover') {
+        return { status: 'scheduled', goalsA: null, goalsB: null, completedAt: null, decided: null };
+      }
       if (m.status === 'completed') return { status: 'live', completedAt: null, ...clearDecision(m) };
       if (m.status === 'not_played') return { status: 'scheduled', notPlayedReason: null, ...clearDecision(m) };
       throw new DataError('invalid_state', 'Nur beendete oder nicht ausgetragene Spiele können geöffnet werden.');
@@ -398,7 +449,12 @@ export interface MatchState {
   goalsB?: number | null;
   notPlayedReason?: NotPlayedReason | null;
   /** Baukasten: Entscheidung wiederherstellen; fehlt = unverändert bzw. entfernt, wenn nicht beendet. */
-  decided?: { decidedBy?: MatchDecision['decidedBy'] | null; penaltiesA?: number | null; penaltiesB?: number | null };
+  decided?: {
+    decidedBy?: MatchDecision['decidedBy'] | null;
+    penaltiesA?: number | null;
+    penaltiesB?: number | null;
+    walkoverWinner?: 'A' | 'B' | null;
+  };
 }
 
 /**
@@ -441,7 +497,12 @@ export function restoreMatchState(
       else if (m.status !== 'completed') patch.completedAt = 'now';
       if (target.decided) {
         patch.decided = target.decided.decidedBy
-          ? { decidedBy: target.decided.decidedBy, penaltiesA: target.decided.penaltiesA ?? null, penaltiesB: target.decided.penaltiesB ?? null }
+          ? {
+              decidedBy: target.decided.decidedBy,
+              penaltiesA: target.decided.penaltiesA ?? null,
+              penaltiesB: target.decided.penaltiesB ?? null,
+              walkoverWinner: target.decided.walkoverWinner ?? null,
+            }
           : null;
       } else if (target.status !== 'completed' && hasDecision(m)) {
         patch.decided = null;

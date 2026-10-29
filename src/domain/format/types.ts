@@ -47,8 +47,11 @@ export interface EntryRule {
   fromStageId: string;
   /** Feste Plätze jeder Gruppe bzw. der Tabelle, 1-basiert. */
   places: number[];
-  /** Die besten `count` Teams des Gruppenplatzes `place`, verglichen nach Quotient. */
-  best?: { place: number; count: number }[];
+  /**
+   * Die besten `count` Teams des Gruppenplatzes `place`, verglichen nach Quotient. `fromRank` (Standard 1)
+   * lässt die Besseren aus, z. B. „der drittbeste Dritte“, wenn die zwei besten schon in die Goldrunde gehen.
+   */
+  best?: { place: number; count: number; fromRank?: number }[];
 }
 
 interface StageBase {
@@ -112,6 +115,11 @@ export interface FinalGroupStage extends StageBase {
 export interface PlacementStage extends StageBase {
   kind: 'placement';
   matches: { key: string; place: number; slotA: SlotRef; slotB: SlotRef; penaltyOnly?: boolean }[];
+  /**
+   * Plätze ohne Spiel (nach „Turnier umstellen“): fehlt der Gegner, bekommt das Team den Platz kampflos.
+   * Mit `placeTo` teilen sich mehrere Teams einen Bereich (gestrichene Endrunde, z. B. 13.–15.).
+   */
+  byes?: { slot: SlotRef; place: number; placeTo?: number }[];
   drawDecider: DrawDecider;
 }
 

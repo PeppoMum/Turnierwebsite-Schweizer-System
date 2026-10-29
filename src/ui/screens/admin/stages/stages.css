@@ -269,3 +269,44 @@
   flex: none;
   font-variant-numeric: tabular-nums;
 }
+
+/* Turnier umstellen */
+.reshape-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.reshape-group {
+  border: 1px solid var(--ln);
+  border-radius: 10px;
+  padding: 6px 10px 8px;
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.reshape-group legend {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mu);
+  padding: 0 4px;
+}
+
+.reshape-group .pill {
+  margin-left: 6px;
+  height: 20px;
+}
+
+.reshape-option {
+  display: grid;
+  gap: 8px;
+}
+
+.reshape-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 13px;
+}

@@ -78,6 +78,8 @@ export function Wizard() {
   const [errors, setErrors] = useState<StepErrors>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Schon angelegt, aber danach etwas schiefgegangen: beim nächsten Versuch nicht noch einmal anlegen.
+  const [createdId, setCreatedId] = useState<string | null>(null);
 
   const update = (patch: Partial<WizardDraft>) => setDraft((d) => ({ ...d, ...patch }));
   const swiss = builder.prelim === 'swiss';
@@ -132,7 +134,10 @@ export function Wizard() {
     try {
       const id = swiss
         ? await service.createTournament({ ...draft, format: undefined, groupDraws: undefined }, publish)
-        : await createFormatTournament(service, draft, builder, draw, groups ?? [], publish);
+        : await createFormatTournament(service, draft, builder, draw, groups ?? [], publish, {
+            created: createdId,
+            onCreated: setCreatedId,
+          });
       navigate({ name: 'admin', id, tab: 'live' });
     } catch (e) {
       setSaving(false);

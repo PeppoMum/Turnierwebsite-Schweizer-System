@@ -407,7 +407,10 @@ export class MockTournamentStore implements TournamentService {
         m.status = m.goalsA === undefined ? 'scheduled' : 'live';
         m.notPlayedReason = undefined;
         m.completedAt = undefined;
-        if (m.decidedBy === 'walkover') m.decidedBy = undefined;
+        if (m.decidedBy === 'walkover') {
+          m.decidedBy = undefined;
+          m.walkoverWinner = undefined;
+        }
       }),
     );
   }
@@ -713,6 +716,7 @@ export class MockTournamentStore implements TournamentService {
               m.status = 'scheduled';
               m.notPlayedReason = undefined;
               m.decidedBy = undefined;
+              m.walkoverWinner = undefined;
             }
             m.revision += 1;
           }

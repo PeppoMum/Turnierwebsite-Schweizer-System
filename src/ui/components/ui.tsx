@@ -125,8 +125,9 @@ export function Kpi({ value, label, tone }: { value: ReactNode; label: string; t
   );
 }
 
-export function Crest({ name, logo, large }: { name: string; logo?: string; large?: boolean }) {
-  return <span className={large ? 'crest lg' : 'crest'} aria-hidden>{logo ? <img src={logo} alt="" /> : initials(name)}</span>;
+export function Crest({ name, logo, large, small }: { name: string; logo?: string; large?: boolean; small?: boolean }) {
+  const cls = ['crest', large ? 'lg' : '', small ? 'sm' : ''].filter(Boolean).join(' ');
+  return <span className={cls} aria-hidden>{logo ? <img src={logo} alt="" /> : initials(name)}</span>;
 }
 
 export function TeamName({ name, logo, muted }: { name: string; logo?: string; muted?: boolean }) {

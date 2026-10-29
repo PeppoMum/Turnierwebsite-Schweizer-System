@@ -5,11 +5,11 @@ import type { GroupTableRow } from '../../../domain/format';
 import type { PublicMatch } from '../../data/types';
 import { formatSigned, formatTime } from '../../format';
 import { href } from '../../router';
-import { EmptyState, Notice } from '../../components/ui';
+import { Crest, EmptyState, Notice, TeamName } from '../../components/ui';
 import { Icon } from '../../components/Icon';
 import { STAGE_COLORS, groupLetter, type GroupView, type PlaceMark, type StageTable } from './stageView';
 import { Dot, FavPicker } from './parts';
-import { durationOf, sidesOf, teamName, type Ctx } from './ctx';
+import { durationOf, sidesOf, teamLogo, teamName, type Ctx } from './ctx';
 import { useFavorite } from './favorite';
 
 function markColor(marks: PlaceMark[] | undefined): string | undefined {
@@ -78,7 +78,9 @@ function GroupTable({ ctx, table, g, fav, full }: { ctx: Ctx; table: StageTable;
             {r.place}.
           </span>
         </td>
-        <td className="l st-tname">{teamName(ctx, r.teamId)}</td>
+        <td className="l st-tname">
+          <TeamName name={teamName(ctx, r.teamId)} logo={teamLogo(ctx, r.teamId)} />
+        </td>
         {full && (
           <>
             <td>{r.played}</td>
@@ -127,7 +129,9 @@ function GroupTable({ ctx, table, g, fav, full }: { ctx: Ctx; table: StageTable;
         {g.unranked.map((id) => (
           <tr key={id} className="dim">
             <td className="l">–</td>
-            <td className="l st-tname">{teamName(ctx, id)} (spielt nicht mehr mit)</td>
+            <td className="l st-tname">
+              <TeamName name={`${teamName(ctx, id)} (spielt nicht mehr mit)`} logo={teamLogo(ctx, id)} />
+            </td>
             {full && <td colSpan={7} />}
           </tr>
         ))}
@@ -151,9 +155,15 @@ function GroupGames({ ctx, matches, fav }: { ctx: Ctx; matches: PublicMatch[]; f
                 {formatTime(m.startISO, tz)}
                 {durationOf(ctx, m) && <small className="st-gm-dur">{m.durationMinutes} Min.</small>}
               </span>
-              <span className={cls(m.teamAId)}>{teamName(ctx, m.teamAId)}</span>
+              <span className={['st-gm-a', cls(m.teamAId)].filter(Boolean).join(' ')}>
+                {teamLogo(ctx, m.teamAId) && <Crest name="" logo={teamLogo(ctx, m.teamAId)} small />}
+                {teamName(ctx, m.teamAId)}
+              </span>
               <span className="st-gm-score">{score}</span>
-              <span className={['st-gm-b', cls(m.teamBId)].filter(Boolean).join(' ')}>{teamName(ctx, m.teamBId)}</span>
+              <span className={['st-gm-b', cls(m.teamBId)].filter(Boolean).join(' ')}>
+                {teamName(ctx, m.teamBId)}
+                {teamLogo(ctx, m.teamBId) && <Crest name="" logo={teamLogo(ctx, m.teamBId)} small />}
+              </span>
             </div>
           );
         })}
@@ -197,7 +207,9 @@ function BestOf({ ctx, table, place, fav }: { ctx: Ctx; table: StageTable; place
                     {i + 1}.
                   </span>
                 </td>
-                <td className="l st-tname">{teamName(ctx, r.teamId)}</td>
+                <td className="l st-tname">
+          <TeamName name={teamName(ctx, r.teamId)} logo={teamLogo(ctx, r.teamId)} />
+        </td>
                 <td className="l">{groupLetter(r.group)}</td>
                 <td>{r.played}</td>
                 <td>{formatSigned(r.goalsFor - r.goalsAgainst)}</td>
@@ -280,7 +292,10 @@ function MyTeamBox({ ctx, table, fav }: { ctx: Ctx; table: StageTable; fav: stri
                 const id = s === 'A' ? m.teamAId : m.teamBId;
                 return (
                   <div key={s} className={id === fav ? 'st-mini-r st-fav' : 'st-mini-r'}>
-                    <span>{teamName(ctx, id)}</span>
+                    <span>
+                      {teamLogo(ctx, id) && <Crest name="" logo={teamLogo(ctx, id)} small />}
+                      {teamName(ctx, id)}
+                    </span>
                     <b>{ctx.scores ? (s === 'A' ? m.goalsA : m.goalsB) : ''}</b>
                   </div>
                 );
@@ -307,7 +322,10 @@ function NextMini({ ctx, m, fav }: { ctx: Ctx; m: PublicMatch; fav: string }) {
       </div>
       {[a, b].map((s, i) => (
         <div key={i} className={s.teamId === fav ? 'st-mini-r st-fav' : 'st-mini-r'}>
-          <span className={s.teamId ? undefined : 'st-open'}>{s.teamId ? teamName(ctx, s.teamId) : (s.slotLabel ?? 'Noch offen')}</span>
+          <span className={s.teamId ? undefined : 'st-open'}>
+            {teamLogo(ctx, s.teamId) && <Crest name="" logo={teamLogo(ctx, s.teamId)} small />}
+            {s.teamId ? teamName(ctx, s.teamId) : (s.slotLabel ?? 'Noch offen')}
+          </span>
         </div>
       ))}
       {stage && stage.phase > 0 && (

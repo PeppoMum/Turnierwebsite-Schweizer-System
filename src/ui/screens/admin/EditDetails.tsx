@@ -5,7 +5,7 @@ import { canChangeDate, detailsOf, validateDetails } from '../../data/details';
 import { uid } from '../../data/mockStore';
 import type { TournamentData, TournamentDetails } from '../../data/types';
 import { Icon } from '../../components/Icon';
-import { ImagePicker } from '../../components/ImagePicker';
+import { crestChoices, ImagePicker } from '../../components/ImagePicker';
 import { Dialog, Field } from '../../components/ui';
 
 export function EditDetailsDialog({ data, onClose }: { data: TournamentData; onClose: () => void }) {
@@ -106,7 +106,7 @@ export function EditDetailsDialog({ data, onClose }: { data: TournamentData; onC
   );
 }
 
-/** Mannschaft umbenennen, Logo ändern oder (ohne team) nachmelden. */
+/** Mannschaft umbenennen, Wappen ändern oder (ohne team) nachmelden. */
 export function TeamDialog({
   data,
   team,
@@ -153,7 +153,13 @@ export function TeamDialog({
           />
         )}
       </Field>
-      <ImagePicker label="Logo" name={name} value={logo} onChange={setLogo} />
+      <ImagePicker
+        label="Vereinswappen"
+        name={name}
+        value={logo}
+        onChange={setLogo}
+        choices={crestChoices(data.teams.filter((t) => t.id !== team?.id).map((t) => ({ name: t.name, logo: t.logoAssetId ? data.assets[t.logoAssetId] : undefined })))}
+      />
       {!team && started && (
         <span className="muted">
           Die Mannschaft spielt ab der nächsten Runde mit, die du auslost. In der Tabelle zählt wie immer der Schnitt pro Spiel, verpasste Runden sind also kein Nachteil.

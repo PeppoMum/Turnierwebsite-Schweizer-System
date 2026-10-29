@@ -200,3 +200,11 @@
 .print-bracket-match .b {
   font-weight: 700;
 }
+
+.print-crest {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  vertical-align: -2px;
+  margin-right: 5px;
+}

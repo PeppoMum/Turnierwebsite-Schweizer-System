@@ -2,10 +2,13 @@
 // Reine Anzeige, die Daten bereitet die Seite auf (Zuschauerseite, Turnierleitung, Druck).
 // Am Handy sind zwei Runden sichtbar, der Rest per Wischen; die Spalten rasten ein.
 import type { ReactNode } from 'react';
+import { Crest } from '../ui';
 import './bracket.css';
 
 export interface BracketSide {
   name: string;
+  /** Vereinswappen, falls hochgeladen. */
+  logo?: string;
   /** Kurzer Platzhalter vor dem Namen, z. B. „1. A“. */
   short?: string;
   goals?: number;
@@ -38,6 +41,7 @@ function Side({ s }: { s: BracketSide }) {
   return (
     <div className={cls}>
       {s.short !== undefined && <span className="bk-short">{s.short}</span>}
+      {s.logo && <Crest name={s.name} logo={s.logo} small />}
       <span className="bk-name">{s.name}</span>
       <b className="bk-goals">{s.goals ?? ''}</b>
     </div>

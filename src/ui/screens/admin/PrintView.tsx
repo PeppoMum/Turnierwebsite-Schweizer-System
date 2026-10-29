@@ -11,6 +11,7 @@ import { Icon } from '../../components/Icon';
 import { groupByWave } from './LiveTab';
 import { StagePrint } from './stages/StagePrint';
 import '../../styles/print.css';
+import { PrintCrest, teamCrest } from './printCrest';
 
 type Scores = 'with' | 'blank';
 
@@ -37,6 +38,7 @@ function SwissPrint({ data }: { data: TournamentData }) {
   const [teamId, setTeamId] = useState<string>('');
 
   const name = (id: string) => data.teams.find((x) => x.id === id)?.name ?? 'Unbekannt';
+  const teamMark = (id: string) => <PrintCrest logo={teamCrest(data, id)} />;
   const field = (id?: string) => (id ? (data.fields.find((f) => f.id === id)?.name ?? 'Feld') : '–');
   const logo = (assetId?: string) => (assetId ? data.assets[assetId] : undefined);
   const rows = useMemo(() => computeStandings(data), [data]);
@@ -138,9 +140,9 @@ function SwissPrint({ data }: { data: TournamentData }) {
                       <tr key={m.id}>
                         <td>{formatTime(m.startISO, t.timeZone)}</td>
                         <td>{field(m.fieldId)}</td>
-                        <td className={`l${m.teamAId === teamId ? ' b' : ''}`}>{name(m.teamAId)}</td>
+                        <td className={`l${m.teamAId === teamId ? ' b' : ''}`}>{teamMark(m.teamAId)}{name(m.teamAId)}</td>
                         <td className="score">{scoreText(m, scores)}</td>
-                        <td className={`l${m.teamBId === teamId ? ' b' : ''}`}>{name(m.teamBId)}</td>
+                        <td className={`l${m.teamBId === teamId ? ' b' : ''}`}>{teamMark(m.teamBId)}{name(m.teamBId)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -177,6 +179,7 @@ function SwissPrint({ data }: { data: TournamentData }) {
                 <tr key={r.teamId} className={r.teamId === teamId ? 'b' : undefined}>
                   <td>{r.rank ?? '–'}</td>
                   <td className="l">
+                    {teamMark(r.teamId)}
                     {r.name}
                     {!r.eligible && ' (zurückgezogen)'}
                   </td>

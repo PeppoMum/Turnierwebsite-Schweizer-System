@@ -8,7 +8,7 @@ import { matchLabel } from '../../../../domain/knockout';
 import { formatGoalDiff } from '../../../../domain/scoring/format';
 import { href } from '../../../router';
 import { Icon } from '../../../components/Icon';
-import { EmptyState, MatchStatusPill, Seg } from '../../../components/ui';
+import { Crest, EmptyState, MatchStatusPill, Seg, TeamName } from '../../../components/ui';
 import { Bracket, BracketCard, type BracketMatch, type BracketRound } from '../../../components/bracket/Bracket';
 import { formatTime } from '../../../format';
 import type { AdminCtx } from '../AdminTournament';
@@ -138,7 +138,7 @@ function GroupSection({ ctx, model, stage, st }: { ctx: AdminCtx; model: StageMo
                               </span>
                             </td>
                             <td className="l">
-                              {ctx.teamName(r.teamId)}
+                              <TeamName name={ctx.teamName(r.teamId)} logo={ctx.teamLogo(r.teamId)} />
                               {r.decidedBy === 'lot' && <span className="small-text"> (Los)</span>}
                               {lots.includes(r.teamId) && <span className="small-text"> (Los fehlt)</span>}
                             </td>
@@ -215,6 +215,7 @@ function FinalsCard({ ctx, model, stage }: { ctx: AdminCtx; model: StageModel; s
       {champion && (
         <div className="row" style={{ marginTop: 10, padding: 12, borderRadius: 12, background: 'var(--soft)', flexWrap: 'nowrap' }}>
           <Icon name="trophy" />
+          {ctx.teamLogo(champion) && <Crest name={ctx.teamName(champion)} logo={ctx.teamLogo(champion)} large />}
           <span className="stack tight" style={{ minWidth: 0 }}>
             <span className="small-text">{stage.placeRange?.from === 1 ? 'Turniersieger' : `Sieger ${stage.name}`}</span>
             <b style={{ fontSize: 18, overflowWrap: 'anywhere' }}>{ctx.teamName(champion)}</b>
@@ -246,7 +247,10 @@ export function ResultLine({ ctx, model, match: m }: { ctx: AdminCtx; model: Sta
   };
   return (
     <div className="result-line">
-      <span className={cls('A')}>{sideText(m, 'A', model.format, ctx.teamName)}</span>
+      <span className={cls('A')}>
+        {m.teamAId && ctx.teamLogo(m.teamAId) && <Crest name="" logo={ctx.teamLogo(m.teamAId)} small />}
+        {sideText(m, 'A', model.format, ctx.teamName)}
+      </span>
       <span className="s">
         {main || '–'}
         {extra && (
@@ -256,7 +260,10 @@ export function ResultLine({ ctx, model, match: m }: { ctx: AdminCtx; model: Sta
           </>
         )}
       </span>
-      <span className={`rt ${cls('B')}`}>{sideText(m, 'B', model.format, ctx.teamName)}</span>
+      <span className={`rt ${cls('B')}`}>
+        {m.teamBId && ctx.teamLogo(m.teamBId) && <Crest name="" logo={ctx.teamLogo(m.teamBId)} small />}
+        {sideText(m, 'B', model.format, ctx.teamName)}
+      </span>
     </div>
   );
 }
@@ -300,6 +307,7 @@ function toBracket(ctx: AdminCtx, model: StageModel, m: Match, title?: string): 
     const id = s === 'A' ? m.teamAId : m.teamBId;
     return {
       name: sideText(m, s, model.format, ctx.teamName),
+      ...(id && ctx.teamLogo(id) ? { logo: ctx.teamLogo(id) } : {}),
       goals: shown ? ((s === 'A' ? m.goalsA : m.goalsB) ?? 0) : undefined,
       state: !id ? ('open' as const) : win === s ? ('win' as const) : win ? ('lose' as const) : undefined,
     };

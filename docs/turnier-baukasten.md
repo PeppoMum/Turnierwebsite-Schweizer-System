@@ -76,6 +76,15 @@ Stand 29.10.2026, mit Phil abgestimmt. Ausführliche Beschreibung: Claude Doc �
   Turnier, zählt in der Tabelle wie ein normales Ergebnis (Entscheidung Phil, 29.10.2026). Gespeichert als
   beendetes Spiel mit Toren und `decidedBy: 'walkover'`/`walkoverWinner` (src/domain/groups/walkover.ts),
   Anzeige „2:0 (kampflos)“. „Korrigieren“ setzt es auf „geplant“ zurück; beides im Verlauf rückgängig machbar.
+- „Turnier umstellen“ (Knopf in der Turnierleitung, src/domain/format/reshape.ts): fehlende Teams anhaken, die
+  Seite zeigt 2–3 Vorschläge mit Spielzahl und neuer Endzeit. 16 → 15: erst 3 Gruppen mit je 5 (Gruppe mit dem
+  fehlenden Team wird aufgelöst), dann „Lücke lassen“ (übrige Spiele bleiben zu ihrer Zeit). Ab 3 Fehlenden zuerst
+  die nächstkleinere Vorlage. Nie eine Gruppe mit 2 Teams (ein Team wechselt, das mit den geringsten
+  Zeitänderungen). Endrunden behalten ihre Größe, solange genug Teams da sind (Gold zuerst, z. B. „der drittbeste
+  Dritte“ über `best.fromRank`); 3 Teams = Dreiergruppe oder streichen (geteilte Plätze), 2 = ein Spiel, sonst K.-o.
+  4/8 plus Rest (Notlösung). Fehlt bei einem Platzierungsspiel der Gegner: Platz ohne Spiel (`PlacementStage.byes`).
+  Nach dem ersten Anpfiff in der Vorrunde ändert sich nur die Endrunde. Ein Verlaufseintrag, rückgängig, solange
+  danach nicht gespielt wurde.
 
 ## Zuschauerseite
 

@@ -3,6 +3,8 @@
 // Schreibfehler (fehlende Rechte, inzwischen geänderte Daten) als Error mit deutscher, verständlicher Meldung werfen;
 // die Oberfläche zeigt sie an.
 import type { MatchStatus, NotPlayedReason, Visibility } from '../../domain';
+
+type MatchSideKey = 'A' | 'B';
 import type {
   GroupDraw,
   HistoryEntry,
@@ -81,6 +83,11 @@ export interface TournamentService {
   saveStagePlan(tid: string, matches: PlannedStageMatch[]): Promise<string[]>;
   /** Endrunden-Spiel mit Sieger beenden, auch nach Verlängerung oder Neunmeterschießen. */
   finishKnockoutMatch(tid: string, matchId: string, result: KnockoutResult): Promise<void>;
+  /**
+   * Gruppenspiel kampflos werten: `winner` gewinnt 2:0, das andere Team bleibt im Turnier (anders als
+   * beim Rückzug). Zählt in der Tabelle wie ein normales Ergebnis; „Korrigieren“ setzt es auf „geplant“ zurück.
+   */
+  recordWalkover(tid: string, matchId: string, winner: MatchSideKey): Promise<void>;
   /** Zwei noch nicht angepfiffene Spiele tauschen Uhrzeit und Feld. */
   swapMatches(tid: string, matchIdA: string, matchIdB: string): Promise<void>;
   /** Zwei Teams (oder Platzhalter) zwischen noch nicht angepfiffenen Spielen tauschen. */

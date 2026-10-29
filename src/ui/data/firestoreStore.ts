@@ -20,6 +20,7 @@ import {
   paths,
   publishRound as publishRoundData,
   recordResult,
+  recordWalkover as recordWalkoverData,
   reopenMatchForCorrection,
   reopenRound,
   resetMatchToScheduled,
@@ -89,6 +90,7 @@ import {
   checkFinishWithoutDecider,
   checkGroupDraw,
   checkKnockoutResult,
+  checkWalkover,
   fillSlotsIn,
   moveMatchIn,
   scoreEditDecision,
@@ -1268,6 +1270,13 @@ export class FirestoreTournamentStore implements TournamentService {
         penaltiesB: result.decidedBy === 'penalties' ? result.penaltiesB : null,
       },
     });
+    await this.markRunning(tid);
+  }
+
+  async recordWalkover(tid: string, matchId: string, winner: 'A' | 'B'): Promise<void> {
+    const r = checkWalkover(this.formatData(tid), matchId, winner);
+    const m = this.match(tid, matchId);
+    await recordWalkoverData(this.db, this.actor(), tid, matchId, r, m.revision, this.standingsAfter(tid));
     await this.markRunning(tid);
   }
 

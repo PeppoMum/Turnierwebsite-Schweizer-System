@@ -59,6 +59,13 @@ Stand 29.10.2026, mit Phil abgestimmt. Ausführliche Beschreibung: Claude Doc �
 - Zurückgezogenes Team in der Gruppe: Regel von heute (alle seine Spiele zählen für niemanden). Qualifiziertes
   Team zieht vor seinem Endrunden-Spiel zurück: Turnierleitung wählt im Moment „Gegner kampflos weiter“ oder
   „Nächstbester rückt nach“.
+- Team kommt zu spät (Knopf „Team fehlt“ an jedem noch nicht beendeten Gruppenspiel, nur Turnierleitung):
+  entweder „Spiel nach hinten tauschen“ (Vorschläge: spätere, noch nicht angepfiffene Spiele derselben Gruppe
+  ohne das späte Team; nie ein Team zweimal gleichzeitig; Hinweis, wenn ein Team dadurch vor seinem bisher ersten
+  Spiel dran ist; src/domain/schedule/late.ts) oder „Kampflos werten“: 2:0 für den Gegner, das Team bleibt im
+  Turnier, zählt in der Tabelle wie ein normales Ergebnis (Entscheidung Phil, 29.10.2026). Gespeichert als
+  beendetes Spiel mit Toren und `decidedBy: 'walkover'`/`walkoverWinner` (src/domain/groups/walkover.ts),
+  Anzeige „2:0 (kampflos)“. „Korrigieren“ setzt es auf „geplant“ zurück; beides im Verlauf rückgängig machbar.
 
 ## Zuschauerseite
 

@@ -17,6 +17,7 @@ import {
   checkFinishWithoutDecider,
   checkGroupDraw,
   checkKnockoutResult,
+  checkWalkover,
   fillSlotsIn,
   scoreEditDecision,
   moveMatchIn,
@@ -108,7 +109,14 @@ export class MockTournamentStore implements TournamentService {
             goalsB: m.goalsB ?? null,
             notPlayedReason: m.notPlayedReason ?? null,
             revision: m.revision,
-            ...(m.stageId ? { decidedBy: m.decidedBy ?? null, penaltiesA: m.penaltiesA ?? null, penaltiesB: m.penaltiesB ?? null } : {}),
+            ...(m.stageId
+              ? {
+                  decidedBy: m.decidedBy ?? null,
+                  penaltiesA: m.penaltiesA ?? null,
+                  penaltiesB: m.penaltiesB ?? null,
+                  ...(m.walkoverWinner ? { walkoverWinner: m.walkoverWinner } : {}),
+                }
+              : {}),
           }
         : null;
     };
@@ -413,6 +421,11 @@ export class MockTournamentStore implements TournamentService {
   async reopenMatch(tid: string, matchId: string): Promise<void> {
     this.logMatch(tid, matchId, 'match.reopen', () =>
       this.mutateMatch(tid, matchId, (m) => {
+        // Kampflos gewertetes Gruppenspiel: zurück auf „geplant“, die 2:0 waren nie ein Spielstand.
+        if (m.status === 'completed' && m.decidedBy === 'walkover') {
+          m.goalsA = undefined;
+          m.goalsB = undefined;
+        }
         m.status = m.goalsA === undefined ? 'scheduled' : 'live';
         m.notPlayedReason = undefined;
         m.completedAt = undefined;
@@ -658,6 +671,7 @@ export class MockTournamentStore implements TournamentService {
               m.decidedBy = target.decided.decidedBy ?? undefined;
               m.penaltiesA = target.decided.penaltiesA ?? undefined;
               m.penaltiesB = target.decided.penaltiesB ?? undefined;
+              m.walkoverWinner = target.decided.walkoverWinner ?? undefined;
             }
           }),
         );
@@ -819,6 +833,23 @@ export class MockTournamentStore implements TournamentService {
   async finishKnockoutMatch(tid: string, matchId: string, result: KnockoutResult): Promise<void> {
     checkKnockoutResult(this.formatData(tid), matchId, result);
     this.logMatch(tid, matchId, 'match.result.final', () => this.mutateMatch(tid, matchId, (m) => applyKnockoutResult(m, result, nowISO())));
+  }
+
+  async recordWalkover(tid: string, matchId: string, winner: 'A' | 'B'): Promise<void> {
+    const r = checkWalkover(this.formatData(tid), matchId, winner);
+    this.logMatch(tid, matchId, 'match.walkover', () =>
+      this.mutateMatch(tid, matchId, (m) => {
+        m.status = 'completed';
+        m.goalsA = r.goalsA;
+        m.goalsB = r.goalsB;
+        m.decidedBy = r.decidedBy;
+        m.walkoverWinner = r.walkoverWinner;
+        m.penaltiesA = undefined;
+        m.penaltiesB = undefined;
+        m.notPlayedReason = undefined;
+        m.completedAt = nowISO();
+      }),
+    );
   }
 
   async swapMatches(tid: string, matchIdA: string, matchIdB: string): Promise<void> {

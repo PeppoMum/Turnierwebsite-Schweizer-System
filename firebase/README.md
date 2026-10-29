@@ -10,19 +10,21 @@ Betrieb ausschließlich im **Spark-Tarif** (kostenlos): kein Cloud Storage, kein
 
 | Pfad | Inhalt | Lesen | Schreiben |
 |---|---|---|---|
-| `tournaments/{tid}` | Turnierkonfiguration, `revision`, `resultsRevision` | Mitglieder | Owner (Konfiguration), Mitglieder (nur `resultsRevision`+1) |
+| `tournaments/{tid}` | Turnierkonfiguration, `revision`, `resultsRevision` | Mitglieder | Owner (Konfiguration), Mitglieder außer Schiris (nur `resultsRevision`+1) |
 | `…/teams`, `/fields`, `/sponsors`, `/byes` | Stammdaten, Freilose | Mitglieder | Owner |
 | `…/rounds/{round-NN}` | Runde inkl. `matchIds`, `byeTeamIds`, `generatedFromRevision` | Mitglieder | Owner; erweiterte Helfer mit Freigaberecht nur `preview → published` |
 | `…/matches/{id}` | Spiel inkl. Tore, `revision`, `lastAuditId` | Mitglieder | Owner; Helfer nur Score/Status |
-| `…/audit/{id}` | Änderungsprotokoll | Owner | Mitglieder (nur anlegen, nie ändern/löschen) |
-| `…/roleGrants/{uid}` | Rolle je uid + Turnier | Owner, die Person selbst | Owner; Einlösung einer Einladung; Helferlink ohne Anmeldung |
+| `…/audit/{id}` | Änderungsprotokoll | Owner | Mitglieder außer Schiris (nur anlegen, nie ändern/löschen) |
+| `…/roleGrants/{uid}` | Rolle je uid + Turnier | Owner, die Person selbst | Owner; Einlösung einer Einladung; Helfer- oder Schiri-Link ohne Anmeldung |
 | `…/invitations/{id}` | Helfer-Einladungen | Owner (Liste), angemeldete Person mit Link (einzeln) | Owner; Einlösung |
 | `…/assets/{id}` | kleine Bilder (Data-URL) | Mitglieder | Owner |
 | `…/stages/{stageId}` | Baukasten: Gruppeneinteilung, Lostöpfe, gezogene Lose | Mitglieder | Owner |
+| `…/referees/{uid}` | Schiris (Name), nie öffentlich | Mitglieder | Owner; Schiri nur das eigene Dokument |
+| `…/refereeing/{matchId}` | wer pfeift, gemeldetes Ergebnis; nie öffentlich | Mitglieder | Owner, Schiris |
 | `publicTournaments/{tid}` | öffentliche Stammdaten, Teams alphabetisch, Felder, Sponsoren | alle, wenn `isPublic` | Owner |
 | `…/publicRounds`, `/publicMatches` | freigegebene Runden und Paarungen, **ohne Tore** | alle, wenn `isPublic` | Owner, Freigabeberechtigte; Helfer spiegeln nur den Status |
 | `…/publicResults/{matchId}` | Tore | alle, wenn `isPublic` **und** Modus `full`/`no_standings` | Owner; Helfer exakt gespiegelt |
-| `…/publicStandings/current` | Tabelle | alle, wenn `isPublic` **und** Modus `full` | Mitglieder, nur im Modus `full` |
+| `…/publicStandings/current` | Tabelle | alle, wenn `isPublic` **und** Modus `full` | Mitglieder außer Schiris, nur im Modus `full` |
 | `…/publicAssets/{id}` | öffentliche Bilder | alle, wenn `isPublic` | Owner |
 | `…/publicStages/{stageId}` | Baukasten: Gruppeneinteilung; Lose nur im Modus `full` | alle, wenn `isPublic` | Owner |
 | `users/{uid}/tournamentRefs/{tid}` | Turniere eines Kontos (Dashboard) | die Person selbst | die Person selbst, nur mit gültiger Rolle |
@@ -146,6 +148,17 @@ Authentication → Anmeldemethode ist der Anbieter **Anonym** aktiviert.
 
 Wer den Link kennt, kann Ergebnisse eintragen – das ist der bewusste Tausch gegen das Passwort. Korrekturen
 beendeter Spiele, Runden und Stammdaten bleiben beim Owner bzw. erweiterten Helfern.
+
+## Schiri-Link ohne Anmeldung (optional je Turnier)
+
+Funktioniert wie der Helferlink, mit eigener ID `tournament.openRefereeLinkId` (Link
+`…/#/schiri/{tid}/{openRefereeLinkId}`) und der Rolle `referee` (`joinWithOpenRefereeLink`). Welche ID ein
+Link-Grant braucht, hängt an seiner Rolle (`linkFieldFor`); beide Links lassen sich getrennt schalten.
+
+Schiris lesen alles wie Mitglieder, schreiben aber nur `referees/{eigene uid}` (Name) und
+`refereeing/{matchId}` (Einteilung, gemeldetes Ergebnis). Spiele, Tabelle, Turnier und Verlauf ändern
+sie nie (`isWriter` schließt sie aus). Ein gemeldetes Ergebnis zählt erst, wenn die Turnierleitung es
+übernimmt; das läuft dann über den normalen Ergebnisweg (`recordResult`) und steht im Verlauf.
 
 Hinweis zu den Regeln: Firestore wertet je Anfrage höchstens 1000 Ausdrücke aus. Die Spielregel ist nahe
 an dieser Grenze; deshalb berechnet `myRole` die Rolle einmal und `matchChangeAllowed` bekommt sie als

@@ -16,6 +16,7 @@ import { EmptyState } from './components/ui';
 import { LoginScreen } from './screens/auth/LoginForm';
 import { InvitationScreen } from './screens/auth/InvitationScreen';
 import { HelperScreen } from './screens/helper/HelperScreen';
+import { RefereeScreen } from './screens/referee/RefereeScreen';
 
 const APP_NAME = 'Turnierplaner';
 
@@ -74,6 +75,12 @@ function Routes() {
           <HelperScreen tid={route.tid} linkId={route.linkId} />
         </AppShell>
       );
+    case 'referee':
+      return (
+        <AppShell brand={APP_NAME} brandHref={href({ name: 'referee', tid: route.tid, linkId: route.linkId })} items={[]}>
+          <RefereeScreen tid={route.tid} linkId={route.linkId} />
+        </AppShell>
+      );
     case 'public':
       return <PublicRoute id={route.id} tab={route.tab} />;
     default:
@@ -127,6 +134,7 @@ function AdminRoute({ id, tab, accountItems }: { id: string; tab: AdminTab; acco
     { key: 'public', label: 'Öffentliche Seite', icon: 'eye', href: href({ name: 'public', id, tab: 'aktuell' }) },
     { key: 'print', label: 'Drucken oder PDF', icon: 'print', href: href({ name: 'print', id }) },
     { key: 'verlauf', label: 'Verlauf', icon: 'clock', href: href({ name: 'admin', id, tab: 'verlauf' }), active: tab === 'verlauf' },
+    { key: 'schiris', label: 'Schiris', icon: 'ball', href: href({ name: 'admin', id, tab: 'schiris' }), active: tab === 'schiris' },
     { key: 'list', label: 'Alle Turniere', icon: 'trophy', href: href({ name: 'dashboard' }) },
     ...accountItems,
   ];

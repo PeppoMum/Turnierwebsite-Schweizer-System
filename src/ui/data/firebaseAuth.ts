@@ -9,6 +9,7 @@ import {
   getInvitation,
   invitationProblem,
   joinWithOpenHelperLink,
+  joinWithOpenRefereeLink,
   redeemInvitation,
   registerWithEmail,
   sendPasswordReset,
@@ -97,6 +98,14 @@ export class FirebaseAuthService implements AuthService {
     const u = this.auth.currentUser;
     if (!u) throw new Error('Die Anmeldung hat nicht geklappt.');
     await joinWithOpenHelperLink(this.db, { uid: u.uid, email: u.email, anonymous: u.isAnonymous }, tid, linkId);
+  }
+
+  async joinWithRefereeLink(tid: string, linkId: string): Promise<string> {
+    if (!this.auth.currentUser) await signInAnonymous(this.auth);
+    const u = this.auth.currentUser;
+    if (!u) throw new Error('Die Anmeldung hat nicht geklappt.');
+    await joinWithOpenRefereeLink(this.db, { uid: u.uid, email: u.email, anonymous: u.isAnonymous }, tid, linkId);
+    return u.uid;
   }
 
   async createInvitation(tid: string, input: CreateInvitationInput): Promise<string> {

@@ -8,6 +8,7 @@ import { CopyButton, QrCode, Seg, ShareButton } from '../../components/ui';
 import type { AdminCtx } from './AdminTournament';
 import { HelperInvite, OpenHelperLink } from './HelperInvite';
 import { EditDetailsDialog } from './EditDetails';
+import { OpenRefereeLink } from './RefereeAdmin';
 
 export function SettingsTab({ ctx }: { ctx: AdminCtx }) {
   const service = useService();
@@ -98,6 +99,7 @@ export function SettingsTab({ ctx }: { ctx: AdminCtx }) {
       </section>
       <OpenHelperLink tid={t.id} title={t.title} linkId={t.openHelperLinkId} />
       <HelperInvite tid={t.id} title={t.title} />
+      <OpenRefereeLink tid={t.id} title={t.title} linkId={t.openRefereeLinkId} />
     </div>
   );
 }

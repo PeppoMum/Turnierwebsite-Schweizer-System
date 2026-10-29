@@ -8,9 +8,11 @@ rules_version = '2';
 //   eigenen Collections (publicResults, publicStandings), deren Lesbarkeit an den
 //   Sichtbarkeitsmodus gebunden ist. Im Kindermodus sind sie für niemanden lesbar und
 //   dürfen nicht angelegt werden; publicMatches enthalten nie Tore.
-// - Schreiben nur mit echtem Konto und Rolle je uid + Turnier. Einzige Ausnahme: der optionale
-//   Helferlink ohne Anmeldung (anonymer Login, nur Ergebnis-Helfer, gilt nur solange der Link
-//   im Turnier eingeschaltet ist).
+// - Schreiben nur mit echtem Konto und Rolle je uid + Turnier. Einzige Ausnahmen: der optionale
+//   Helferlink und der optionale Schiri-Link ohne Anmeldung (anonymer Login, nur Ergebnis-Helfer
+//   bzw. Schiri, gilt nur solange der jeweilige Link im Turnier eingeschaltet ist).
+// - Schiris (`referee`) lesen wie Mitglieder, schreiben aber nur Schiri-Daten (referees,
+//   refereeing), nie Spiele, Tabelle oder Verlauf. Nichts davon ist öffentlich.
 // - Jede Match-Änderung erhöht `revision` um genau 1 und verweist auf einen Audit-Eintrag,
 //   der im selben Batch/Transaktion entsteht.
 // - Kein `allow write: if true`, keine Hard-Deletes von Turnieren.
@@ -73,13 +75,17 @@ service cloud.firestore {
       return signedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous';
     }
 
-    // Helferlink ohne Anmeldung: Link-Grants (`openLinkId`, nur anonym anlegbar) gelten nur,
-    // solange das Turnier genau diesen Link hat. Ausschalten oder ein neuer Link sperrt sofort.
-    // Alle anderen Grants brauchen ein echtes Konto.
+    // Link ohne Anmeldung (Helfer- oder Schiri-Link): Link-Grants (`openLinkId`, nur anonym
+    // anlegbar) gelten nur, solange das Turnier genau diesen Link hat. Ausschalten oder ein neuer
+    // Link sperrt sofort. Alle anderen Grants brauchen ein echtes Konto.
+    function linkFieldFor(role) {
+      return role == 'referee' ? 'openRefereeLinkId' : 'openHelperLinkId';
+    }
+
     function grantIdentityOk(tid, g) {
       return g.get('openLinkId', null) == null
         ? isAccount()
-        : g.openLinkId == get(tournamentPath(tid)).data.get('openHelperLinkId', null);
+        : g.openLinkId == get(tournamentPath(tid)).data.get(linkFieldFor(g.role), null);
     }
 
     // Gültige Rolle der Person in diesem Turnier, sonst ''. Regeln mit mehreren Rollenprüfungen
@@ -105,6 +111,11 @@ service cloud.firestore {
 
     function isHelper(tid) {
       return isHelperRole(myRole(tid));
+    }
+
+    // Mitglied, das am Turnier mitschreibt (also kein Schiri).
+    function isWriter(tid) {
+      return myRole(tid) in ['owner', 'results_helper', 'extended_helper'];
     }
 
     // Runden freigeben: Owner oder erweiterter Helfer mit ausdrücklichem Recht.
@@ -156,12 +167,14 @@ service cloud.firestore {
       return v in ['full', 'no_standings', 'kids'];
     }
 
-    // Geheimer Teil des Helferlinks: null (aus) oder eine lange Zufalls-ID.
+    // Geheimer Teil des Helfer- bzw. Schiri-Links: null (aus) oder eine lange Zufalls-ID.
+    function validLinkId(v) {
+      return v == null || (v is string && v.size() >= 16 && v.size() <= 64);
+    }
+
     function validOpenHelperLink(d) {
-      return d.get('openHelperLinkId', null) == null
-        || (d.openHelperLinkId is string
-            && d.openHelperLinkId.size() >= 16
-            && d.openHelperLinkId.size() <= 64);
+      return validLinkId(d.get('openHelperLinkId', null))
+        && validLinkId(d.get('openRefereeLinkId', null));
     }
 
     function validTournamentStatus(v) {
@@ -223,7 +236,7 @@ service cloud.firestore {
         && stampedNow('createdAt') && stampedNow('updatedAt')
         && existsAfter(grantPath(tid, me()));
 
-      // Owner: Konfiguration mit revision+1. Alle Mitglieder: nur den Ergebniszähler
+      // Owner: Konfiguration mit revision+1. Alle Mitglieder außer Schiris: nur den Ergebniszähler
       // `resultsRevision` hochzählen (Basis für veraltete Paarungsvorschauen).
       allow update: if stampedNow('updatedAt')
         && unchanged(['ownerUid', 'createdAt'])
@@ -235,7 +248,7 @@ service cloud.firestore {
             && request.resource.data.revision == resource.data.revision + 1
             && request.resource.data.resultsRevision >= resource.data.resultsRevision
             && request.resource.data.resultsRevision <= resource.data.resultsRevision + 1)
-          || (isMember(tid)
+          || (isWriter(tid)
             && onlyChanges(['resultsRevision', 'updatedAt'])
             && request.resource.data.resultsRevision == resource.data.resultsRevision + 1)
         );
@@ -426,7 +439,7 @@ service cloud.firestore {
 
       match /audit/{auditId} {
         allow read: if isOwner(tid);
-        allow create: if (isMember(tid) || isCreatingTournament(tid))
+        allow create: if (isWriter(tid) || isCreatingTournament(tid))
           && request.resource.data.keys().hasOnly(['tournamentId', 'actorUid', 'action',
                'targetType', 'targetId', 'before', 'after', 'timestamp', 'transactionId'])
           && request.resource.data.tournamentId == tid
@@ -447,7 +460,7 @@ service cloud.firestore {
                                  'email', 'createdAt', 'createdBy'])
           && d.uid == grantUid
           && d.tournamentId == tid
-          && d.role in ['owner', 'results_helper', 'extended_helper']
+          && d.role in ['owner', 'results_helper', 'extended_helper', 'referee']
           && (d.get('expiresAt', null) == null || d.expiresAt is timestamp)
           && (d.get('allowedFieldIds', null) == null || d.allowedFieldIds is list)
           && d.get('canPublishRounds', false) is bool
@@ -483,18 +496,18 @@ service cloud.firestore {
           && invAfter.usedBy == me();
       }
 
-      // Helferlink ohne Anmeldung (nur anonym): nur Ergebnis-Helfer für alle Felder, ohne
-      // Ablauf, mit genau dem aktuellen Link des Turniers.
-      function currentOpenLink() {
-        return get(tournamentPath(tid)).data.get('openHelperLinkId', null);
+      // Link ohne Anmeldung (nur anonym): Helferlink gibt Ergebnis-Helfer für alle Felder,
+      // Schiri-Link gibt Schiri; ohne Ablauf, mit genau dem aktuellen Link des Turniers.
+      function currentOpenLink(role) {
+        return get(tournamentPath(tid)).data.get(linkFieldFor(role), null);
       }
 
       function openLinkGrant(d, grantUid) {
         return isAnonymous()
           && grantUid == me()
           && d.get('openLinkId', null) is string
-          && d.openLinkId == currentOpenLink()
-          && d.role == 'results_helper'
+          && d.role in ['results_helper', 'referee']
+          && d.openLinkId == currentOpenLink(d.role)
           && d.get('allowedFieldIds', null) == null
           && d.get('canPublishRounds', false) == false
           && d.get('expiresAt', null) == null
@@ -514,15 +527,15 @@ service cloud.firestore {
         allow update: if (isOwner(tid)
             && grantUid != get(tournamentPath(tid)).data.ownerUid
             && unchanged(['uid', 'tournamentId', 'createdAt', 'createdBy', 'inviteId', 'openLinkId'])
-            && request.resource.data.role in ['owner', 'results_helper', 'extended_helper'])
-          // Helfer mit älterem Helferlink wechseln selbst auf den aktuellen Link.
+            && request.resource.data.role in ['owner', 'results_helper', 'extended_helper', 'referee'])
+          // Helfer und Schiris mit älterem Link wechseln selbst auf den aktuellen Link.
           || (isAnonymous()
             && grantUid == me()
             && resource.data.get('openLinkId', null) is string
             && resource.data.get('revokedAt', null) == null
             && onlyChanges(['openLinkId'])
             && request.resource.data.openLinkId is string
-            && request.resource.data.openLinkId == currentOpenLink());
+            && request.resource.data.openLinkId == currentOpenLink(resource.data.role));
         allow delete: if isOwner(tid) && grantUid != get(tournamentPath(tid)).data.ownerUid;
       }
 
@@ -558,6 +571,40 @@ service cloud.firestore {
             && request.resource.data.usedAt == request.time
             && !exists(grantPath(tid, me()))
             && getAfter(grantPath(tid, me())).data.inviteId == inviteId);
+        allow delete: if isOwner(tid);
+      }
+
+      // ---------- Schiris (Schiri-Link, nie öffentlich) ----------
+      // Schiris tragen sich selbst mit Namen ein und teilen Spiele auf. Das ändert nichts am Turnier:
+      // Spiele, Tabelle und Verlauf schreiben sie nie. Die Turnierleitung darf alles hier.
+
+      function refereeNameAllowed(role, refUid) {
+        return role == 'owner' || (role == 'referee' && refUid == me());
+      }
+
+      match /referees/{refUid} {
+        allow read: if isMember(tid);
+        allow create, update: if refereeNameAllowed(myRole(tid), refUid)
+          && request.resource.data.keys().hasOnly(['name', 'joinedAt', 'updatedAt'])
+          && isShortString(request.resource.data.name, 40)
+          && request.resource.data.name.size() > 0
+          && request.resource.data.joinedAt is timestamp
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isOwner(tid);
+      }
+
+      match /refereeing/{matchId} {
+        allow read: if isMember(tid);
+        allow create, update: if myRole(tid) in ['owner', 'referee']
+          && request.resource.data.keys().hasOnly(['matchId', 'refereeId', 'report', 'updatedAt'])
+          && request.resource.data.matchId == matchId
+          && optString(request.resource.data, 'refereeId', 128)
+          && (request.resource.data.get('report', null) == null
+              || (request.resource.data.report.keys().hasOnly(['refereeId', 'goalsA', 'goalsB',
+                    'decidedBy', 'penaltiesA', 'penaltiesB', 'at'])
+                  && isGoal(request.resource.data.report.goalsA)
+                  && isGoal(request.resource.data.report.goalsB)))
+          && request.resource.data.updatedAt == request.time;
         allow delete: if isOwner(tid);
       }
 
@@ -679,7 +726,7 @@ service cloud.firestore {
       // siehe README „Vertrauensgrenze“.
       match /publicStandings/{docId} {
         allow read: if pubReadable() && pub().visibility == 'full';
-        allow create, update: if isMember(tid)
+        allow create, update: if isWriter(tid)
           && pubAfter().visibility == 'full'
           && request.resource.data.keys().hasOnly(['rows', 'throughRound', 'resultsRevision',
                'updatedAt'])

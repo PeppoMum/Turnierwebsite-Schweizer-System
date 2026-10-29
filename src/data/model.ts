@@ -135,6 +135,32 @@ export interface StageDoc {
   updatedAt: Timestamp;
 }
 
+/** Schiri über den Schiri-Link, `tournaments/{tid}/referees/{uid}`. Dokument-ID = uid des Schiris. */
+export interface RefereeDoc {
+  name: string;
+  joinedAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+/** Schiri-Meldung eines Ergebnisses (siehe RefereeReport in src/ui/data/types.ts). */
+export interface RefereeReportDoc {
+  refereeId: string;
+  goalsA: number;
+  goalsB: number;
+  decidedBy?: 'regular' | 'extra_time' | 'penalties' | null;
+  penaltiesA?: number | null;
+  penaltiesB?: number | null;
+  at: Timestamp;
+}
+
+/** Wer pfeift ein Spiel und was hat er gemeldet, `tournaments/{tid}/refereeing/{matchId}`. */
+export interface RefereeingDoc {
+  matchId: string;
+  refereeId: string | null;
+  report: RefereeReportDoc | null;
+  updatedAt: Timestamp;
+}
+
 export interface TournamentRefDoc {
   tournamentId: string;
   role: RoleName;

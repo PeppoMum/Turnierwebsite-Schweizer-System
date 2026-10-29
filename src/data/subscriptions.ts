@@ -25,6 +25,8 @@ import type {
   PublicStageDoc,
   PublicStandingsDoc,
   PublicTournamentDoc,
+  RefereeDoc,
+  RefereeingDoc,
   RoleGrantDoc,
   SponsorDoc,
   StageDoc,
@@ -198,6 +200,20 @@ export const subscribeStages = (
   onData: (stages: WithId<StageDoc>[], m: LiveMeta) => void,
   onError?: OnError,
 ) => subscribeQuery(paths.stages(db, tid), onData, onError);
+
+export const subscribeReferees = (
+  db: Firestore,
+  tid: string,
+  onData: (referees: WithId<RefereeDoc>[], m: LiveMeta) => void,
+  onError?: OnError,
+) => subscribeQuery(paths.referees(db, tid), onData, onError);
+
+export const subscribeRefereeing = (
+  db: Firestore,
+  tid: string,
+  onData: (entries: WithId<RefereeingDoc>[], m: LiveMeta) => void,
+  onError?: OnError,
+) => subscribeQuery(paths.refereeing(db, tid), onData, onError);
 
 export const subscribeByes = (
   db: Firestore,

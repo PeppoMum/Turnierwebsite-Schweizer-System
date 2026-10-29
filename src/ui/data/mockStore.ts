@@ -6,6 +6,7 @@ import { previewNextRound, toPublicView } from './logic';
 import type { TournamentService } from './service';
 import { assertDetails, checkedTeamName, detailsOf, movedStartISO, nextTeamId } from './details';
 import { undoCheck } from './undo';
+import { acceptStep, checkedRefereeName, checkedReport } from './referees';
 import {
   NOT_FOUND,
   applyGroupDraw,
@@ -34,6 +35,7 @@ import type {
   MatchSide,
   PlannedStageMatch,
   PublicTournamentView,
+  RefereeReport,
   SlotFill,
   TeamEdit,
   TournamentData,
@@ -868,6 +870,85 @@ export class MockTournamentStore implements TournamentService {
       d.tournament.publishedAt = nowISO();
     });
     this.log(tid, { action: 'tournament.publish', targetType: 'tournament', targetId: tid, after: { status: 'published' } });
+  }
+
+  // ---------- Schiris ----------
+  // Schiri-Angaben zählen nicht als Turnieränderung: kein Verlauf-Eintrag, Revision bleibt.
+
+  private mutateRefs(tid: string, fn: (d: TournamentData) => void): void {
+    this.data = this.data.map((d) => {
+      if (d.tournament.id !== tid) return d;
+      const copy: TournamentData = structuredClone(d);
+      copy.referees ??= [];
+      copy.refereeing ??= [];
+      fn(copy);
+      return copy;
+    });
+    this.emit();
+  }
+
+  async setOpenRefereeLink(id: string, mode: 'on' | 'off' | 'renew'): Promise<void> {
+    this.mutate(id, (d) => {
+      if (mode === 'on' && d.tournament.openRefereeLinkId) return;
+      d.tournament.openRefereeLinkId = mode === 'off' ? null : uid('s') + uid('k');
+    });
+  }
+
+  async saveReferee(tid: string, name: string, refereeId?: string): Promise<string> {
+    if (!this.get(tid)) throw new Error(NOT_FOUND);
+    const clean = checkedRefereeName(name);
+    const id = refereeId ?? uid('schiri');
+    this.mutateRefs(tid, (d) => {
+      const r = d.referees!.find((x) => x.id === id);
+      if (r) r.name = clean;
+      else d.referees!.push({ id, name: clean, joinedAt: nowISO() });
+    });
+    return id;
+  }
+
+  async removeReferee(tid: string, refereeId: string): Promise<void> {
+    this.mutateRefs(tid, (d) => {
+      d.referees = d.referees!.filter((r) => r.id !== refereeId);
+      for (const e of d.refereeing!) if (e.refereeId === refereeId) delete e.refereeId;
+    });
+  }
+
+  async assignReferees(tid: string, changes: Array<{ matchId: string; refereeId: string | null }>): Promise<void> {
+    const src = this.get(tid);
+    if (!src) throw new Error(NOT_FOUND);
+    for (const c of changes) {
+      if (!src.matches.some((m) => m.id === c.matchId)) throw new Error('Das Spiel wurde nicht gefunden.');
+      if (c.refereeId && !src.referees?.some((r) => r.id === c.refereeId)) throw new Error('Diesen Schiri gibt es nicht mehr.');
+    }
+    this.mutateRefs(tid, (d) => {
+      for (const c of changes) {
+        let e = d.refereeing!.find((x) => x.matchId === c.matchId);
+        if (!e) d.refereeing!.push((e = { matchId: c.matchId }));
+        if (c.refereeId) e.refereeId = c.refereeId;
+        else delete e.refereeId;
+      }
+    });
+  }
+
+  async reportRefereeResult(tid: string, matchId: string, report: Omit<RefereeReport, 'atISO'> | null): Promise<void> {
+    const src = this.get(tid);
+    if (!src) throw new Error(NOT_FOUND);
+    const clean = report ? checkedReport(src, matchId, report) : null;
+    this.mutateRefs(tid, (d) => {
+      let e = d.refereeing!.find((x) => x.matchId === matchId);
+      if (!e) d.refereeing!.push((e = { matchId }));
+      if (clean) e.report = { ...clean, atISO: nowISO() };
+      else delete e.report;
+    });
+  }
+
+  async acceptRefereeReport(tid: string, matchId: string): Promise<void> {
+    const src = this.get(tid);
+    if (!src) throw new Error(NOT_FOUND);
+    const step = acceptStep(src, matchId);
+    if (step.kind === 'knockout') return this.finishKnockoutMatch(tid, matchId, step.result);
+    await this.recordScore(tid, matchId, step.goalsA, step.goalsB);
+    if (this.get(tid)?.matches.find((m) => m.id === matchId)?.status !== 'completed') await this.setMatchStatus(tid, matchId, 'completed');
   }
 
   /** Nur für die Demo: Beispieldaten zurücksetzen. */

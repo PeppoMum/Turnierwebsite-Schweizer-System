@@ -11,6 +11,7 @@ export * from './matches';
 export * from './model';
 export * from './paths';
 export * from './projections';
+export * from './referees';
 export * from './rounds';
 export * from './schedule';
 export * from './stages';

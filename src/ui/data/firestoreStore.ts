@@ -45,6 +45,8 @@ import {
   subscribePublicStandings,
   subscribePublicTournament,
   subscribeQuery,
+  subscribeReferees,
+  subscribeRefereeing,
   subscribeRounds,
   subscribeSponsors,
   subscribeStages,
@@ -54,6 +56,10 @@ import {
   teamIdLists,
   toMatch,
   newOpenHelperLinkId,
+  deleteReferee,
+  saveRefereeName,
+  setRefereeAssignments,
+  setRefereeReport,
   undoField,
   updateTournamentConfig,
   withdrawTeam as withdrawTeamData,
@@ -72,6 +78,8 @@ import {
   type PublicStageDoc,
   type PublicStandingsDoc,
   type PublicTournamentDoc,
+  type RefereeDoc,
+  type RefereeingDoc,
   type StageDoc,
   type Unsubscribe,
   type WithId,
@@ -79,6 +87,7 @@ import {
 import { iso } from '../../data/mappers';
 import { assertDetails, checkedTeamName, movedStartISO, nextTeamId } from './details';
 import { undoCheck } from './undo';
+import { acceptStep, checkedRefereeName, checkedReport } from './referees';
 import { computeStandings, previewNextRound } from './logic';
 import type { TournamentService } from './service';
 import {
@@ -107,6 +116,8 @@ import type {
   PairingPreview,
   PlannedStageMatch,
   PublicTournamentView,
+  RefereeReport,
+  Refereeing,
   SlotFill,
   TeamEdit,
   TournamentData,
@@ -129,6 +140,9 @@ interface PrivateEntry {
   assets: Loaded<Record<string, string>>;
   /** Baukasten: Gruppeneinteilung und Lose je Abschnitt. */
   stages: Loaded<WithId<StageDoc>[]>;
+  /** Schiris und Einteilung (nur Turnierleitung, Helfer und Schiris lesen das). */
+  referees: Loaded<WithId<RefereeDoc>[]>;
+  refereeing: Loaded<WithId<RefereeingDoc>[]>;
   unsubs: Unsubscribe[];
   snapshot?: TournamentData;
   dirty: boolean;
@@ -210,6 +224,35 @@ function stageData(stages: WithId<StageDoc>[]): Pick<TournamentData, 'groupDraws
     })),
   );
   return { groupDraws, lots };
+}
+
+function refereeData(referees: WithId<RefereeDoc>[], entries: WithId<RefereeingDoc>[]): Pick<TournamentData, 'referees' | 'refereeing'> {
+  if (referees.length === 0 && entries.length === 0) return {};
+  return {
+    referees: referees
+      .map((r) => ({ id: r.id, name: r.name, joinedAt: iso(r.joinedAt) ?? '' }))
+      .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt) || a.name.localeCompare(b.name)),
+    refereeing: entries.map((e): Refereeing => {
+      const r = e.report;
+      return {
+        matchId: e.id,
+        ...(e.refereeId ? { refereeId: e.refereeId } : {}),
+        ...(r
+          ? {
+              report: {
+                refereeId: r.refereeId,
+                goalsA: r.goalsA,
+                goalsB: r.goalsB,
+                ...(r.decidedBy ? { decidedBy: r.decidedBy } : {}),
+                ...(r.penaltiesA != null ? { penaltiesA: r.penaltiesA } : {}),
+                ...(r.penaltiesB != null ? { penaltiesB: r.penaltiesB } : {}),
+                atISO: iso(r.at) ?? '',
+              },
+            }
+          : {}),
+      };
+    }),
+  };
 }
 
 export class FirestoreTournamentStore implements TournamentService {
@@ -331,12 +374,14 @@ export class FirestoreTournamentStore implements TournamentService {
       byes: empty([]),
       assets: empty({}),
       stages: empty([]),
+      referees: empty([]),
+      refereeing: empty([]),
       unsubs: [],
       dirty: true,
     };
     this.priv.set(tid, entry);
     const set =
-      <K extends 'tournament' | 'teams' | 'fields' | 'sponsors' | 'rounds' | 'matches' | 'byes' | 'assets' | 'stages'>(key: K) =>
+      <K extends 'tournament' | 'teams' | 'fields' | 'sponsors' | 'rounds' | 'matches' | 'byes' | 'assets' | 'stages' | 'referees' | 'refereeing'>(key: K) =>
       (value: PrivateEntry[K]['value']) => {
         entry[key] = { value, loaded: true } as PrivateEntry[K];
         entry.dirty = true;
@@ -362,6 +407,9 @@ export class FirestoreTournamentStore implements TournamentService {
       ),
       // Ältere Schutzregeln kennen die Abschnitte noch nicht: dann einfach keine (Schweizer System läuft weiter).
       subscribeStages(db, tid, set('stages'), () => set('stages')([])),
+      // Ebenso Schiris: ältere Schutzregeln kennen sie nicht, dann eben keine.
+      subscribeReferees(db, tid, set('referees'), () => set('referees')([])),
+      subscribeRefereeing(db, tid, set('refereeing'), () => set('refereeing')([])),
     );
     return entry;
   }
@@ -369,7 +417,7 @@ export class FirestoreTournamentStore implements TournamentService {
   private isPrivateLoaded(tid: string): boolean {
     const e = this.priv.get(tid);
     if (!e) return false;
-    return [e.tournament, e.teams, e.fields, e.sponsors, e.rounds, e.matches, e.byes, e.assets, e.stages].every((x) => x.loaded);
+    return [e.tournament, e.teams, e.fields, e.sponsors, e.rounds, e.matches, e.byes, e.assets, e.stages, e.referees, e.refereeing].every((x) => x.loaded);
   }
 
   private snapshotOf(tid: string): TournamentData | undefined {
@@ -388,6 +436,7 @@ export class FirestoreTournamentStore implements TournamentService {
         byes: e.byes.value,
         assets: e.assets.value,
         ...(tournament.format ? stageData(e.stages.value) : {}),
+        ...refereeData(e.referees.value, e.refereeing.value),
       };
       e.dirty = false;
     }
@@ -1312,6 +1361,64 @@ export class FirestoreTournamentStore implements TournamentService {
     await setTournamentStatus(this.db, this.actor(), tid, t.revision, 'published');
     await syncPublicTournament(this.db, tid, { isPublic: true });
   }
+  // ---------- Schiris ----------
+  // Ohne Audit: Schiri-Angaben ändern nichts am Turnier. „Übernehmen“ läuft über die üblichen
+  // Ergebnis-Wege und steht deshalb im Verlauf.
+
+  async setOpenRefereeLink(id: string, mode: 'on' | 'off' | 'renew'): Promise<void> {
+    const d = this.data(id);
+    if (mode === 'on' && d.tournament.openRefereeLinkId) return;
+    await updateTournamentConfig(this.db, this.actor(), id, d.tournament.revision, {
+      openRefereeLinkId: mode === 'off' ? null : newOpenHelperLinkId(),
+    });
+  }
+
+  async saveReferee(tid: string, name: string, refereeId?: string): Promise<string> {
+    this.data(tid);
+    const id = refereeId ?? this.actor().uid;
+    await saveRefereeName(this.db, tid, id, checkedRefereeName(name));
+    return id;
+  }
+
+  async removeReferee(tid: string, refereeId: string): Promise<void> {
+    const d = this.data(tid);
+    const assigned = (d.refereeing ?? []).filter((e) => e.refereeId === refereeId).map((e) => e.matchId);
+    await deleteReferee(this.db, tid, refereeId, assigned);
+  }
+
+  async assignReferees(tid: string, changes: Array<{ matchId: string; refereeId: string | null }>): Promise<void> {
+    const d = this.data(tid);
+    for (const c of changes) {
+      if (!d.matches.some((m) => m.id === c.matchId)) throw new DataError('not_found', 'Das Spiel wurde nicht gefunden.');
+      if (c.refereeId && !d.referees?.some((r) => r.id === c.refereeId)) {
+        throw new DataError('not_found', 'Diesen Schiri gibt es nicht mehr.');
+      }
+    }
+    if (changes.length) await setRefereeAssignments(this.db, tid, changes);
+  }
+
+  async reportRefereeResult(tid: string, matchId: string, report: Omit<RefereeReport, 'atISO'> | null): Promise<void> {
+    const d = this.data(tid);
+    try {
+      await setRefereeReport(this.db, tid, matchId, report ? checkedReport(d, matchId, report) : null);
+    } catch (err) {
+      throw err instanceof DataError ? err : new DataError('invalid_input', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async acceptRefereeReport(tid: string, matchId: string): Promise<void> {
+    const step = acceptStep(this.data(tid), matchId);
+    if (step.kind === 'knockout') return this.finishKnockoutMatch(tid, matchId, step.result);
+    const d = this.data(tid);
+    assertPlayable(d, matchId);
+    const m = this.match(tid, matchId);
+    await recordResult(this.db, this.actor(), tid, matchId, step.goalsA, step.goalsB, m.revision, {
+      ...this.standingsAfter(tid),
+      finish: true,
+    });
+    await this.markRunning(tid);
+  }
+
 
   /** Alle Abos beenden (z. B. beim Abmelden oder in Tests). */
   dispose(): void {

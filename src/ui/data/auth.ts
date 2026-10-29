@@ -15,7 +15,7 @@ export interface InvitationInfo {
 }
 
 export interface CreateInvitationInput {
-  role: Exclude<RoleName, 'owner'>;
+  role: Exclude<RoleName, 'owner' | 'referee'>;
   validForHours: number;
   canPublishRounds?: boolean;
 }
@@ -39,10 +39,13 @@ export interface AuthService {
   createInvitation?(tid: string, input: CreateInvitationInput): Promise<string>;
   /** Helferlink ohne Anmeldung: meldet bei Bedarf anonym an und gibt die Helferrolle. */
   joinWithHelperLink?(tid: string, linkId: string): Promise<void>;
+  /** Schiri-Link ohne Anmeldung: meldet bei Bedarf anonym an, gibt die Schiri-Rolle und liefert die eigene ID. */
+  joinWithRefereeLink?(tid: string, linkId: string): Promise<string>;
 }
 
 export const ROLE_LABEL: Record<RoleName, string> = {
   owner: 'Turnierleitung',
   results_helper: 'Helfer für Ergebnisse',
   extended_helper: 'Erweiterter Helfer',
+  referee: 'Schiedsrichter',
 };

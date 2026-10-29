@@ -6,11 +6,13 @@
 //   roleGrants/{uid}                        Rolle je uid + Turnier
 //   invitations/{inviteId}                  Helfer-Einladungen
 //   assets/{assetId}                        kleine Bilder (Data-URL)
+//   stages/{stageId}                        Baukasten: Gruppeneinteilung, Lose
 // publicTournaments/{tid}                   öffentliche Projektion
 //   publicRounds|publicMatches/{id}         ohne Tore
 //   publicResults/{matchId}                 Tore; nicht im Kindermodus
 //   publicStandings/current                 Tabelle; nur im Modus `full`
 //   publicAssets/{assetId}
+//   publicStages/{stageId}                  Baukasten: Gruppen; Lose nur im Modus `full`
 // users/{uid}/tournamentRefs/{tid}          Dashboard-Zuordnung
 import {
   collection,
@@ -28,6 +30,7 @@ import {
   type InvitationDoc,
   type MatchDoc,
   type PublicMatchDoc,
+  type PublicStageDoc,
   type PublicResultDoc,
   type PublicRoundDoc,
   type PublicStandingsDoc,
@@ -35,6 +38,7 @@ import {
   type RoleGrantDoc,
   type RoundDoc,
   type SponsorDoc,
+  type StageDoc,
   type TeamDoc,
   type TournamentDoc,
   type TournamentRefDoc,
@@ -73,6 +77,10 @@ export const paths = {
   asset: (db: Firestore, tid: string, assetId: string) =>
     ref<AssetDoc>(db, `tournaments/${tid}/assets/${assetId}`),
 
+  stages: (db: Firestore, tid: string) => col<StageDoc>(db, `tournaments/${tid}/stages`),
+  stage: (db: Firestore, tid: string, stageId: string) =>
+    ref<StageDoc>(db, `tournaments/${tid}/stages/${stageId}`),
+
   publicTournament: (db: Firestore, tid: string) =>
     ref<PublicTournamentDoc>(db, `publicTournaments/${tid}`),
   publicRounds: (db: Firestore, tid: string) =>
@@ -96,6 +104,11 @@ export const paths = {
     col<AssetDoc>(db, `publicTournaments/${tid}/publicAssets`),
   publicAsset: (db: Firestore, tid: string, assetId: string) =>
     ref<AssetDoc>(db, `publicTournaments/${tid}/publicAssets/${assetId}`),
+
+  publicStages: (db: Firestore, tid: string) =>
+    col<PublicStageDoc>(db, `publicTournaments/${tid}/publicStages`),
+  publicStage: (db: Firestore, tid: string, stageId: string) =>
+    ref<PublicStageDoc>(db, `publicTournaments/${tid}/publicStages/${stageId}`),
 
   tournamentRefs: (db: Firestore, uid: string) =>
     col<TournamentRefDoc>(db, `users/${uid}/tournamentRefs`),

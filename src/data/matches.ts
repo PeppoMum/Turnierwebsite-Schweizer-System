@@ -35,13 +35,40 @@ export interface MatchWriteOptions extends UndoRef {
   ) => { rows: PublicStandingRow[]; throughRound: number };
 }
 
+/** Baukasten: wie ein Endrunden-Spiel entschieden wurde. `null` = Angaben entfernen. */
+export interface MatchDecision {
+  decidedBy: NonNullable<MatchDoc['decidedBy']>;
+  penaltiesA?: number | null;
+  penaltiesB?: number | null;
+  walkoverWinner?: 'A' | 'B' | null;
+}
+
+const DECISION_KEYS = ['decidedBy', 'penaltiesA', 'penaltiesB', 'walkoverWinner'] as const;
+
 type MatchPatch = {
   status: MatchStatus;
   goalsA?: number | null;
   goalsB?: number | null;
   notPlayedReason?: NotPlayedReason | null;
   completedAt?: 'now' | null;
+  decided?: MatchDecision | null;
 };
+
+function hasDecision(m: MatchDoc): boolean {
+  return DECISION_KEYS.some((k) => m[k] != null);
+}
+
+/** Entscheidung für Verlauf und Rückgängig (nur bei Baukasten-Spielen). */
+function decisionSnap(m: MatchDoc): Record<string, unknown> {
+  return m.stageId
+    ? { decidedBy: m.decidedBy ?? null, penaltiesA: m.penaltiesA ?? null, penaltiesB: m.penaltiesB ?? null }
+    : {};
+}
+
+/** Verlässt ein Spiel „beendet“, verliert es seine Entscheidung (außer kampflos gewertet). */
+function clearDecision(m: MatchDoc): { decided?: null } {
+  return hasDecision(m) ? { decided: null } : {};
+}
 
 function assertGoal(value: number, label: string): void {
   if (!Number.isInteger(value) || value < 0 || value > MAX_GOALS) {
@@ -105,6 +132,7 @@ async function mutateMatch(
             goalsB: current.goalsB ?? null,
             notPlayedReason: current.notPlayedReason ?? null,
             revision: current.revision,
+            ...decisionSnap(current),
           },
           after: {
             status: patch.status,
@@ -113,6 +141,11 @@ async function mutateMatch(
             notPlayedReason:
               'notPlayedReason' in patch ? (patch.notPlayedReason ?? null) : (current.notPlayedReason ?? null),
             revision,
+            ...(current.stageId
+              ? 'decided' in patch
+                ? { decidedBy: patch.decided?.decidedBy ?? null, penaltiesA: patch.decided?.penaltiesA ?? null, penaltiesB: patch.decided?.penaltiesB ?? null }
+                : decisionSnap(current)
+              : {}),
             ...undoField(options),
           },
         },
@@ -132,6 +165,13 @@ async function mutateMatch(
       if ('completedAt' in patch) {
         update.completedAt = patch.completedAt === 'now' ? serverTimestamp() : deleteField();
       }
+      if ('decided' in patch) {
+        for (const k of DECISION_KEYS) {
+          const v = patch.decided?.[k] ?? null;
+          if (v !== null) (update as Record<string, unknown>)[k] = v;
+          else if (current[k] != null) (update as Record<string, unknown>)[k] = deleteField();
+        }
+      }
       tx.update(matchRef, update);
 
       // Lokales Bild des Spiels nach der Änderung (für Projektionen und Rückgabe).
@@ -142,6 +182,9 @@ async function mutateMatch(
         goalsB: 'goalsB' in patch ? (patch.goalsB ?? undefined) : current.goalsB,
         notPlayedReason:
           'notPlayedReason' in patch ? (patch.notPlayedReason ?? undefined) : current.notPlayedReason,
+        ...('decided' in patch
+          ? Object.fromEntries(DECISION_KEYS.map((k) => [k, patch.decided?.[k] ?? undefined]))
+          : {}),
         revision,
       });
 
@@ -155,7 +198,13 @@ async function mutateMatch(
       if (isPublishedMatchStatus(current.status) && isPublishedMatchStatus(next.status)) {
         tx.set(
           paths.publicMatch(db, tid, matchId),
-          { status: next.status, sourceRevision: revision, updatedAt: serverTimestamp() },
+          {
+            status: next.status,
+            // Baukasten: wie entschieden wurde, ist öffentlich (die Neunmeter-Treffer nicht).
+            ...(next.stageId ? { decidedBy: next.decidedBy ?? null, walkoverWinner: next.walkoverWinner ?? null } : {}),
+            sourceRevision: revision,
+            updatedAt: serverTimestamp(),
+          },
           { merge: true },
         );
         if (resultsArePublic(tournament.visibility)) {
@@ -218,10 +267,14 @@ export function recordResult(
   goalsA: number,
   goalsB: number,
   expectedRevision: number,
-  options: MatchWriteOptions & { finish?: boolean } = {},
+  options: MatchWriteOptions & { finish?: boolean; decided?: MatchDecision | null } = {},
 ) {
   assertGoal(goalsA, 'Tore Team A');
   assertGoal(goalsB, 'Tore Team B');
+  if (options.decided?.decidedBy === 'penalties') {
+    assertGoal(options.decided.penaltiesA ?? -1, 'Neunmeter Team A');
+    assertGoal(options.decided.penaltiesB ?? -1, 'Neunmeter Team B');
+  }
   return mutateMatch(
     db,
     actor,
@@ -239,9 +292,10 @@ export function recordResult(
           'Das Spiel ist als „nicht ausgetragen“ markiert. Öffne es zuerst zur Korrektur.',
         );
       }
+      const decided = options.decided !== undefined ? { decided: options.decided } : options.finish ? {} : clearDecision(m);
       return options.finish
-        ? { status: 'completed', goalsA, goalsB, completedAt: 'now' }
-        : { status: 'live', goalsA, goalsB };
+        ? { status: 'completed', goalsA, goalsB, completedAt: 'now', ...decided }
+        : { status: 'live', goalsA, goalsB, ...decided };
     },
     options,
   );
@@ -276,6 +330,7 @@ export function markMatchNotPlayed(
         goalsB: null,
         notPlayedReason: reason,
         completedAt: null,
+        ...clearDecision(m),
       };
     },
     options,
@@ -303,8 +358,8 @@ export function reopenMatchForCorrection(
     expectedRevision,
     'match.reopen',
     (m) => {
-      if (m.status === 'completed') return { status: 'live', completedAt: null };
-      if (m.status === 'not_played') return { status: 'scheduled', notPlayedReason: null };
+      if (m.status === 'completed') return { status: 'live', completedAt: null, ...clearDecision(m) };
+      if (m.status === 'not_played') return { status: 'scheduled', notPlayedReason: null, ...clearDecision(m) };
       throw new DataError('invalid_state', 'Nur beendete oder nicht ausgetragene Spiele können geöffnet werden.');
     },
     options,
@@ -331,7 +386,7 @@ export function resetMatchToScheduled(
       if (m.status !== 'live' && m.status !== 'completed' && m.status !== 'not_played') {
         throw new DataError('invalid_state', 'Dieses Spiel ist bereits geplant oder nicht freigegeben.');
       }
-      return { status: 'scheduled', goalsA: null, goalsB: null, notPlayedReason: null, completedAt: null };
+      return { status: 'scheduled', goalsA: null, goalsB: null, notPlayedReason: null, completedAt: null, ...clearDecision(m) };
     },
     options,
   );
@@ -342,6 +397,8 @@ export interface MatchState {
   goalsA?: number | null;
   goalsB?: number | null;
   notPlayedReason?: NotPlayedReason | null;
+  /** Baukasten: Entscheidung wiederherstellen; fehlt = unverändert bzw. entfernt, wenn nicht beendet. */
+  decided?: { decidedBy?: MatchDecision['decidedBy'] | null; penaltiesA?: number | null; penaltiesB?: number | null };
 }
 
 /**
@@ -382,6 +439,13 @@ export function restoreMatchState(
       // Beendet bleibt beendet: der ursprüngliche Zeitpunkt bleibt dann stehen.
       if (target.status !== 'completed') patch.completedAt = null;
       else if (m.status !== 'completed') patch.completedAt = 'now';
+      if (target.decided) {
+        patch.decided = target.decided.decidedBy
+          ? { decidedBy: target.decided.decidedBy, penaltiesA: target.decided.penaltiesA ?? null, penaltiesB: target.decided.penaltiesB ?? null }
+          : null;
+      } else if (target.status !== 'completed' && hasDecision(m)) {
+        patch.decided = null;
+      }
       return patch;
     },
     options,

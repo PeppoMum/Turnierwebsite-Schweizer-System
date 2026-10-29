@@ -13,6 +13,7 @@ export * from './paths';
 export * from './projections';
 export * from './rounds';
 export * from './schedule';
+export * from './stages';
 export * from './subscriptions';
 export * from './teams';
 export * from './tournaments';

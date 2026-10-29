@@ -19,6 +19,7 @@ import {
   resultsArePublic,
   standingsArePublic,
   toPublicResult,
+  toPublicStage,
   toPublicStandings,
   toPublicTournament,
 } from './projections';
@@ -276,6 +277,8 @@ export async function setVisibility(
 ): Promise<number> {
   try {
     const matches = await getDocs(paths.matches(db, tid));
+    // Baukasten: Lose sind nur im Modus `full` öffentlich (ältere Schutzregeln kennen die Abschnitte nicht).
+    const stages = await getDocs(paths.stages(db, tid)).catch(() => null);
     return await runTransaction(db, async (tx) => {
       const tRef = paths.tournament(db, tid);
       const pubRef = paths.publicTournament(db, tid);
@@ -329,6 +332,12 @@ export async function setVisibility(
           } as never);
         } else if (!standingsArePublic(visibility)) {
           tx.delete(standingsRef);
+        }
+        for (const s of stages?.docs ?? []) {
+          tx.set(paths.publicStage(db, tid, s.id), {
+            ...clean(toPublicStage(s.data(), visibility)),
+            updatedAt: serverTimestamp(),
+          } as never);
         }
       }
       return current.revision + 1;

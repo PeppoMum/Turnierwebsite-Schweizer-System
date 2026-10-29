@@ -13,6 +13,7 @@ import type {
   PairingPreview,
   PlannedStageMatch,
   PublicTournamentView,
+  ReshapeChange,
   SlotFill,
   TeamEdit,
   TournamentData,
@@ -95,4 +96,9 @@ export interface TournamentService {
   withdrawQualifiedTeam(tid: string, teamId: string, choice: WithdrawalChoice): Promise<void>;
   /** Gruppen und Spielplan für Zuschauer freigeben. */
   publishTournament(tid: string): Promise<void>;
+  /**
+   * „Turnier umstellen“: fehlende Teams als nicht erschienen markieren, Format, Einteilung der Vorrunde und alle
+   * noch nicht angepfiffenen Spiele in einem Schritt ersetzen. Ein Eintrag im Verlauf, rückgängig machbar.
+   */
+  reshapeTournament(tid: string, change: ReshapeChange): Promise<void>;
 }

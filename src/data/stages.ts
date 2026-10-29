@@ -8,12 +8,15 @@ import {
   runTransaction,
   serverTimestamp,
   type Firestore,
+  type Transaction,
   type UpdateData,
 } from 'firebase/firestore';
 import type { Match } from '../domain';
 import { clean, newTransactionId, undoField, writeAudit, type Actor, type AuditInput, type UndoRef } from './audit';
 import { DataError, notFound, toDataError } from './errors';
-import type { LotDoc, MatchDoc, StageDoc, TeamIdList } from './model';
+import type { TeamStatus } from '../domain';
+import type { TournamentFormat } from '../domain/format';
+import type { LotDoc, MatchDoc, StageDoc, TeamIdList, TournamentDoc } from './model';
 import { paths } from './paths';
 import { isPublishedMatchStatus, resultsArePublic, toPublicMatch, toPublicResult, toPublicStage } from './projections';
 
@@ -77,6 +80,8 @@ export async function commitMatchChanges(
   tid: string,
   changes: MatchChanges,
   audit: Omit<AuditInput, 'targetType' | 'targetId'> & UndoRef,
+  /** Weitere Schreibvorgänge in derselben Transaktion (z. B. Turnier umstellen); läuft nach dem Audit-Eintrag. */
+  extra?: (tx: Transaction, tournament: TournamentDoc) => void,
 ): Promise<void> {
   const updates = changes.writes.filter((w) => w.expectedRevision !== undefined);
   const creates = changes.writes.filter((w) => w.expectedRevision === undefined);
@@ -119,6 +124,7 @@ export async function commitMatchChanges(
         },
         newTransactionId(),
       );
+      extra?.(tx, tSnap.data());
 
       const mirror = (id: string, m: MatchDoc) => {
         if (!isPublishedMatchStatus(m.status)) return;
@@ -278,4 +284,44 @@ export function saveStageLot(db: Firestore, actor: Actor, tid: string, lot: LotI
       after: { order: saved.order, groupIndex: lot.groupIndex ?? null },
     },
   }));
+}
+
+// ---------- Turnier umstellen ----------
+
+export interface ReshapeWrite {
+  /** Erwartete Revision des Turniers (sonst hat jemand inzwischen etwas geändert). */
+  expectedRevision: number;
+  format: TournamentFormat;
+  /** Neue Einteilung der Vorrunde; fehlt = bleibt. */
+  draw?: { stageId: string; groups: string[][]; mode: NonNullable<StageDoc['mode']> };
+  teams: { id: string; status: TeamStatus }[];
+  changes: MatchChanges;
+}
+
+/**
+ * „Turnier umstellen“ in einer Transaktion: Format am Turnier, Einteilung der Vorrunde (privat und öffentlich),
+ * Teamstatus und alle offenen Spiele, mit einem einzigen Audit-Eintrag.
+ */
+export function reshapeTournamentData(
+  db: Firestore,
+  actor: Actor,
+  tid: string,
+  input: ReshapeWrite,
+  audit: Omit<AuditInput, 'targetType' | 'targetId'> & UndoRef,
+): Promise<void> {
+  return commitMatchChanges(db, actor, tid, input.changes, audit, (tx, t) => {
+    if (t.revision !== input.expectedRevision) {
+      throw new DataError('invalid_state', 'Das Turnier wurde inzwischen geändert. Bitte schau dir die Vorschläge noch einmal an.');
+    }
+    tx.update(paths.tournament(db, tid), { format: clean(input.format), revision: t.revision + 1, updatedAt: serverTimestamp() } as never);
+    if (input.draw) {
+      const next = clean({ stageId: input.draw.stageId, groups: lists(input.draw.groups), mode: input.draw.mode }) as Omit<StageDoc, 'updatedAt'>;
+      tx.set(paths.stage(db, tid, input.draw.stageId), { ...next, updatedAt: serverTimestamp() } as never);
+      tx.set(paths.publicStage(db, tid, input.draw.stageId), { ...clean(toPublicStage(next, t.visibility)), updatedAt: serverTimestamp() } as never);
+    }
+    const now = new Date().toISOString();
+    for (const team of input.teams) {
+      tx.update(paths.team(db, tid, team.id), { status: team.status, withdrawnAt: team.status === 'active' ? deleteField() : now } as never);
+    }
+  });
 }

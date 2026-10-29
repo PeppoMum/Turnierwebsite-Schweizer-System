@@ -114,6 +114,10 @@ export function describeHistory(entries: HistoryEntry[], data: TournamentData, m
         const stage = data.tournament.format?.stages.find((x) => x.id === e.targetId)?.name ?? 'Gruppen';
         return { text: `${stage}: Gruppen ${before.groups ? 'neu ' : ''}eingeteilt` };
       }
+      case 'tournament.reshape': {
+        const missing = Array.isArray(after.teams) ? (after.teams as { id: unknown }[]).map((t) => teamName(t.id)) : [];
+        return { text: `Turnier umgestellt: ${str(after.title) ?? 'neuer Plan'}${missing.length > 0 ? ` (ohne ${missing.join(', ')})` : ''}` };
+      }
       case 'schedule.save':
         return { text: `Spielplan gespeichert (${num(after.matchCount) ?? 0} Spiele)` };
       case 'match.swap':

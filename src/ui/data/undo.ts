@@ -11,7 +11,7 @@
 import type { Match, NotPlayedReason, Visibility } from '../../domain';
 import { visibilityLabel } from '../format';
 import { canChangeDate } from './details';
-import { isOpen, layoutSnap, sameLayout, stageOf, type LayoutSnap } from './stages';
+import { isOpen, layoutSnap, reshapeStateFromAudit, sameLayout, stageOf, type LayoutSnap, type ReshapeState } from './stages';
 import type { GroupDraw, HistoryEntry, TournamentData } from './types';
 
 export interface MatchTarget {
@@ -42,7 +42,9 @@ export type UndoPlan =
   | { kind: 'tournament-reopen' }
   /** Ort, Zeit oder Gegner mehrerer Spiele zurück auf `target`; `reopen`: kampflos gewertete Spiele wieder öffnen. */
   | { kind: 'layout'; target: LayoutSnap[]; current: LayoutSnap[]; reopen: boolean }
-  | { kind: 'group-draw'; draw: Omit<GroupDraw, 'updatedAt'> };
+  | { kind: 'group-draw'; draw: Omit<GroupDraw, 'updatedAt'> }
+  /** „Turnier umstellen“ zurücknehmen: Format, Gruppen, Teamstatus und offene Spiele wie vorher. */
+  | { kind: 'reshape'; state: ReshapeState; title: string };
 
 export type UndoCheck =
   | { ok: true; plan: UndoPlan; explain: string; warning?: string }
@@ -77,6 +79,7 @@ function subjectOf(e: HistoryEntry): string | null {
     return ids.length > 0 ? `layout:${ids.join(',')}` : null;
   }
   if (e.action === 'groups.draw') return `groups:${e.targetId}`;
+  if (e.action === 'tournament.reshape') return 'reshape';
   if (e.action === 'team.withdrawn' || e.action === 'team.no_show' || e.action === 'team.restore') {
     return `team-status:${str(after.teamId) ?? ''}`;
   }
@@ -259,6 +262,31 @@ function checkGroupDraw(e: HistoryEntry, data: TournamentData): UndoCheck | null
   };
 }
 
+function checkReshape(e: HistoryEntry, data: TournamentData): UndoCheck | null {
+  const target = reshapeStateFromAudit(e.before);
+  const after = rec(e.after);
+  const ids = Array.isArray(after.matchIds) ? (after.matchIds as unknown[]).filter((x): x is string => typeof x === 'string') : null;
+  if (!target || !ids) return null;
+  if (JSON.stringify(data.tournament.format) !== JSON.stringify(after.format)) return { ok: false, reason: CHANGED_SINCE };
+  for (const id of ids) {
+    const m = data.matches.find((x) => x.id === id);
+    if (!m) return { ok: false, reason: CHANGED_SINCE };
+    if (!isOpen(m)) return { ok: false, reason: 'Nach dem Umstellen wurde schon gespielt. Der neue Plan bleibt deshalb.' };
+  }
+  const afterTeams = Array.isArray(after.teams) ? (after.teams as { id: string; status: string }[]) : [];
+  for (const t of afterTeams) {
+    if (data.teams.find((x) => x.id === t.id)?.status !== t.status) return { ok: false, reason: CHANGED_SINCE };
+  }
+  const back = target.teamStatus.filter((t) => t.status === 'active').map((t) => teamNameOf(data, t.id));
+  return {
+    ok: true,
+    plan: { kind: 'reshape', state: target, title: str(after.title) ?? 'Turnier umgestellt' },
+    explain:
+      'Das Turnier steht danach wieder wie vor dem Umstellen: dieselben Gruppen, dieselbe Endrunde, dieselben Uhrzeiten.' +
+      (back.length > 0 ? ` ${back.join(', ')} ${back.length === 1 ? 'spielt' : 'spielen'} wieder mit.` : ''),
+  };
+}
+
 function checkTeamStatus(e: HistoryEntry, data: TournamentData): UndoCheck | null {
   const after = rec(e.after);
   const team = data.teams.find((t) => t.id === after.teamId);
@@ -423,6 +451,8 @@ export function undoCheck(e: HistoryEntry, data: TournamentData, newest = true):
       return checkRoundClose(e, data);
     case 'groups.draw':
       return checkGroupDraw(e, data);
+    case 'tournament.reshape':
+      return checkReshape(e, data);
     case 'tournament.status.finished':
       if (t.status !== 'finished') return { ok: false, reason: CHANGED_SINCE };
       return {

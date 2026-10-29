@@ -12,6 +12,10 @@ import {
   applyKnockoutResult,
   applyLayoutSnap,
   applyStagePlan,
+  applyReshapeState,
+  reshapeAuditRecord,
+  reshapeSnapshot,
+  type ReshapeState,
   assertFormat,
   assertPlayable,
   checkFinishWithoutDecider,
@@ -34,6 +38,7 @@ import type {
   MatchSide,
   PlannedStageMatch,
   PublicTournamentView,
+  ReshapeChange,
   SlotFill,
   TeamEdit,
   TournamentData,
@@ -737,6 +742,9 @@ export class MockTournamentStore implements TournamentService {
         await this.saveGroupDraw(tid, plan.draw);
         break;
       }
+      case 'reshape':
+        this.commitReshape(tid, plan.title, plan.state);
+        break;
       case 'tournament-reopen': {
         this.mutate(tid, (x) => {
           x.tournament.status = 'running';
@@ -868,6 +876,37 @@ export class MockTournamentStore implements TournamentService {
       d.tournament.publishedAt = nowISO();
     });
     this.log(tid, { action: 'tournament.publish', targetType: 'tournament', targetId: tid, after: { status: 'published' } });
+  }
+
+  async reshapeTournament(tid: string, change: ReshapeChange): Promise<void> {
+    const src = this.formatData(tid);
+    const missing = change.missingTeamIds.filter((id) => src.teams.find((t) => t.id === id)?.status === 'active');
+    const first = src.tournament.format!.stages[0]!;
+    const oldDraw = src.groupDraws?.find((g) => g.stageId === first.id);
+    this.commitReshape(tid, change.title, {
+      format: change.format,
+      draw: change.groups ? { stageId: first.id, groups: change.groups, mode: oldDraw?.mode ?? 'manual' } : null,
+      teamStatus: missing.map((id) => ({ id, status: 'no_show' })),
+      plan: change.plan,
+    });
+  }
+
+  private commitReshape(tid: string, title: string, target: ReshapeState): void {
+    const src = this.formatData(tid);
+    const before = reshapeSnapshot(src, target.teamStatus.map((t) => t.id));
+    // Erst auf einer Kopie prüfen, damit ein Fehler nichts halb ändert.
+    applyReshapeState(structuredClone(src), target, () => uid(`${tid}-m`), nowISO());
+    let ids: string[] = [];
+    this.mutate(tid, (d) => {
+      ids = applyReshapeState(d, target, () => uid(`${tid}-m`), nowISO());
+    });
+    this.log(tid, {
+      action: 'tournament.reshape',
+      targetType: 'tournament',
+      targetId: tid,
+      before: reshapeAuditRecord(before),
+      after: { title, ...reshapeAuditRecord({ ...target, plan: [] }), matches: null, matchIds: ids },
+    });
   }
 
   /** Nur für die Demo: Beispieldaten zurücksetzen. */

@@ -16,6 +16,7 @@ import {
   loadAudit,
   markMatchNotPlayed,
   newMatchId,
+  reshapeTournamentData,
   publishStandings,
   paths,
   publishRound as publishRoundData,
@@ -84,6 +85,10 @@ import type { TournamentService } from './service';
 import {
   applyLayoutSnap,
   applyStagePlan,
+  applyReshapeState,
+  reshapeAuditRecord,
+  reshapeSnapshot,
+  type ReshapeState,
   assertFormat,
   assertPlayable,
   checkFinishWithoutDecider,
@@ -107,6 +112,7 @@ import type {
   PairingPreview,
   PlannedStageMatch,
   PublicTournamentView,
+  ReshapeChange,
   SlotFill,
   TeamEdit,
   TournamentData,
@@ -1202,6 +1208,9 @@ export class FirestoreTournamentStore implements TournamentService {
       case 'group-draw':
         await this.saveGroupDraw(tid, plan.draw, entry.id);
         return;
+      case 'reshape':
+        await this.commitReshape(tid, plan.title, plan.state, entry.id);
+        return;
     }
   }
 
@@ -1311,6 +1320,46 @@ export class FirestoreTournamentStore implements TournamentService {
     if (t.status !== 'draft') return;
     await setTournamentStatus(this.db, this.actor(), tid, t.revision, 'published');
     await syncPublicTournament(this.db, tid, { isPublic: true });
+  }
+
+  async reshapeTournament(tid: string, change: ReshapeChange): Promise<void> {
+    const d = this.formatData(tid);
+    const missing = change.missingTeamIds.filter((id) => d.teams.find((t) => t.id === id)?.status === 'active');
+    const first = d.tournament.format!.stages[0]!;
+    const oldDraw = d.groupDraws?.find((g) => g.stageId === first.id);
+    await this.commitReshape(tid, change.title, {
+      format: change.format,
+      draw: change.groups ? { stageId: first.id, groups: change.groups, mode: oldDraw?.mode ?? 'manual' } : null,
+      teamStatus: missing.map((id) => ({ id, status: 'no_show' })),
+      plan: change.plan,
+    });
+  }
+
+  /** Wie im mockStore: auf einer Kopie prüfen und anwenden, dann alles in einer Transaktion speichern. */
+  private async commitReshape(tid: string, title: string, target: ReshapeState, undoOf?: string): Promise<void> {
+    const d = this.formatData(tid);
+    const before = reshapeSnapshot(d, target.teamStatus.map((t) => t.id));
+    const copy: TournamentData = structuredClone(d);
+    const ids = applyReshapeState(copy, target, () => newMatchId(this.db, tid), new Date().toISOString());
+    await reshapeTournamentData(
+      this.db,
+      this.actor(),
+      tid,
+      {
+        expectedRevision: d.tournament.revision,
+        format: target.format,
+        ...(target.draw ? { draw: { stageId: target.draw.stageId, groups: target.draw.groups, mode: target.draw.mode } } : {}),
+        teams: target.teamStatus.filter((t) => d.teams.find((x) => x.id === t.id)?.status !== t.status),
+        changes: diffMatches(d.matches, copy.matches),
+      },
+      {
+        action: 'tournament.reshape',
+        before: reshapeAuditRecord(before),
+        after: { title, ...reshapeAuditRecord({ ...target, plan: [] }), matches: null, matchIds: ids },
+        undoOf,
+      },
+    );
+    await this.syncPublicIfShown(tid, d.tournament.status);
   }
 
   /** Alle Abos beenden (z. B. beim Abmelden oder in Tests). */

@@ -9,10 +9,13 @@ import { createWaveSchedule, zonedLocalToISO } from '../../domain/schedule';
 import {
   DataError,
   closeRound,
+  commitMatchChanges,
   createTournament,
+  diffMatches,
   deleteAsset,
   loadAudit,
   markMatchNotPlayed,
+  newMatchId,
   publishStandings,
   paths,
   publishRound as publishRoundData,
@@ -25,6 +28,8 @@ import {
   roundIdFor,
   saveAsset,
   saveRoundPreview,
+  saveStageDraw,
+  saveStageLot,
   setMatchLive,
   setTournamentStatus,
   setVisibility as setVisibilityData,
@@ -36,14 +41,17 @@ import {
   subscribePublicMatches,
   subscribePublicResults,
   subscribePublicRounds,
+  subscribePublicStages,
   subscribePublicStandings,
   subscribePublicTournament,
   subscribeQuery,
   subscribeRounds,
   subscribeSponsors,
+  subscribeStages,
   subscribeTeams,
   subscribeTournament,
   syncPublicTournament,
+  teamIdLists,
   toMatch,
   newOpenHelperLinkId,
   undoField,
@@ -61,8 +69,10 @@ import {
   type PublicMatchDoc,
   type PublicResultDoc,
   type PublicRoundDoc,
+  type PublicStageDoc,
   type PublicStandingsDoc,
   type PublicTournamentDoc,
+  type StageDoc,
   type Unsubscribe,
   type WithId,
 } from '../../data';
@@ -71,13 +81,37 @@ import { assertDetails, checkedTeamName, movedStartISO, nextTeamId } from './det
 import { undoCheck } from './undo';
 import { computeStandings, previewNextRound } from './logic';
 import type { TournamentService } from './service';
+import {
+  applyLayoutSnap,
+  applyStagePlan,
+  assertFormat,
+  assertPlayable,
+  checkFinishWithoutDecider,
+  checkGroupDraw,
+  checkKnockoutResult,
+  fillSlotsIn,
+  moveMatchIn,
+  scoreEditDecision,
+  swapMatchesIn,
+  swapSidesIn,
+  withdrawQualifiedIn,
+  type LayoutSnap,
+} from './stages';
 import type {
+  GroupDraw,
   HistoryEntry,
+  KnockoutResult,
+  LotDecision,
+  MatchMove,
+  MatchSide,
   PairingPreview,
+  PlannedStageMatch,
   PublicTournamentView,
+  SlotFill,
   TeamEdit,
   TournamentData,
   TournamentDetails,
+  WithdrawalChoice,
   WizardDraft,
 } from './types';
 
@@ -93,6 +127,8 @@ interface PrivateEntry {
   matches: Loaded<Match[]>;
   byes: Loaded<Bye[]>;
   assets: Loaded<Record<string, string>>;
+  /** Baukasten: Gruppeneinteilung und Lose je Abschnitt. */
+  stages: Loaded<WithId<StageDoc>[]>;
   unsubs: Unsubscribe[];
   snapshot?: TournamentData;
   dirty: boolean;
@@ -109,6 +145,7 @@ interface PublicEntry {
   results: Loaded<WithId<PublicResultDoc>[]>;
   standings: Loaded<PublicStandingsDoc | null>;
   assets: Loaded<Record<string, string>>;
+  stages: Loaded<WithId<PublicStageDoc>[]>;
   unsubs: Unsubscribe[];
   /** Abos, die vom Sichtbarkeitsmodus abhängen (Ergebnisse, Tabelle). */
   modeUnsubs: Unsubscribe[];
@@ -150,8 +187,29 @@ async function toPreparedAsset(dataUrl: string): Promise<PreparedAsset> {
   return { dataUrl, mimeType: match[1] as AssetMimeType, width, height };
 }
 
-function notYet(): DataError {
-  return new DataError('invalid_state', 'Turniere mit Gruppen und Endrunde lassen sich noch nicht speichern. Das kommt in Kürze.');
+/** Gruppeneinteilung und Lose aus den Abschnitts-Dokumenten. */
+function stageData(stages: WithId<StageDoc>[]): Pick<TournamentData, 'groupDraws' | 'lots'> {
+  const groupDraws: GroupDraw[] = stages
+    .filter((s) => s.groups && s.groups.length > 0)
+    .map((s) => ({
+      stageId: s.stageId ?? s.id,
+      groups: teamIdLists(s.groups),
+      mode: s.mode ?? 'manual',
+      ...(s.pots ? { pots: teamIdLists(s.pots) } : {}),
+      ...(s.seed != null ? { seed: s.seed } : {}),
+      updatedAt: iso(s.updatedAt) ?? '',
+    }));
+  const lots: LotDecision[] = stages.flatMap((s) =>
+    (s.lots ?? []).map((l) => ({
+      id: l.id,
+      stageId: s.stageId ?? s.id,
+      ...(l.groupIndex != null ? { groupIndex: l.groupIndex } : {}),
+      ...(l.place != null ? { place: l.place } : {}),
+      order: [...l.order],
+      atISO: l.atISO,
+    })),
+  );
+  return { groupDraws, lots };
 }
 
 export class FirestoreTournamentStore implements TournamentService {
@@ -272,12 +330,13 @@ export class FirestoreTournamentStore implements TournamentService {
       matches: empty([]),
       byes: empty([]),
       assets: empty({}),
+      stages: empty([]),
       unsubs: [],
       dirty: true,
     };
     this.priv.set(tid, entry);
     const set =
-      <K extends 'tournament' | 'teams' | 'fields' | 'sponsors' | 'rounds' | 'matches' | 'byes' | 'assets'>(key: K) =>
+      <K extends 'tournament' | 'teams' | 'fields' | 'sponsors' | 'rounds' | 'matches' | 'byes' | 'assets' | 'stages'>(key: K) =>
       (value: PrivateEntry[K]['value']) => {
         entry[key] = { value, loaded: true } as PrivateEntry[K];
         entry.dirty = true;
@@ -301,6 +360,8 @@ export class FirestoreTournamentStore implements TournamentService {
         (assets: WithId<AssetDoc>[]) => set('assets')(Object.fromEntries(assets.map((a) => [a.id, a.dataUrl]))),
         fail,
       ),
+      // Ältere Schutzregeln kennen die Abschnitte noch nicht: dann einfach keine (Schweizer System läuft weiter).
+      subscribeStages(db, tid, set('stages'), () => set('stages')([])),
     );
     return entry;
   }
@@ -308,7 +369,7 @@ export class FirestoreTournamentStore implements TournamentService {
   private isPrivateLoaded(tid: string): boolean {
     const e = this.priv.get(tid);
     if (!e) return false;
-    return [e.tournament, e.teams, e.fields, e.sponsors, e.rounds, e.matches, e.byes, e.assets].every((x) => x.loaded);
+    return [e.tournament, e.teams, e.fields, e.sponsors, e.rounds, e.matches, e.byes, e.assets, e.stages].every((x) => x.loaded);
   }
 
   private snapshotOf(tid: string): TournamentData | undefined {
@@ -326,6 +387,7 @@ export class FirestoreTournamentStore implements TournamentService {
         matches: e.matches.value,
         byes: e.byes.value,
         assets: e.assets.value,
+        ...(tournament.format ? stageData(e.stages.value) : {}),
       };
       e.dirty = false;
     }
@@ -342,6 +404,7 @@ export class FirestoreTournamentStore implements TournamentService {
       results: empty([]),
       standings: empty(null),
       assets: empty({}),
+      stages: empty([]),
       unsubs: [],
       modeUnsubs: [],
       dirty: true,
@@ -387,6 +450,10 @@ export class FirestoreTournamentStore implements TournamentService {
           update();
         },
       ),
+      subscribePublicStages(db, tid, (s) => ((entry.stages = { value: s, loaded: true }), update()), () => {
+        entry.stages = { value: [], loaded: true };
+        update();
+      }),
     );
     return entry;
   }
@@ -424,7 +491,7 @@ export class FirestoreTournamentStore implements TournamentService {
   private isPublicLoaded(e: PublicEntry): boolean {
     if (!e.doc.loaded) return false;
     if (!e.doc.value) return true;
-    return [e.rounds, e.matches, e.results, e.standings, e.assets].every((x) => x.loaded);
+    return [e.rounds, e.matches, e.results, e.standings, e.assets, e.stages].every((x) => x.loaded);
   }
 
   private buildPublicView(tid: string, e: PublicEntry): PublicTournamentView {
@@ -454,7 +521,21 @@ export class FirestoreTournamentStore implements TournamentService {
       matches: e.matches.value.map((m) => {
         const r = showScores ? results.get(m.matchId) : undefined;
         const withScore = r && (m.status === 'completed' || m.status === 'live') && r.goalsA !== null && r.goalsB !== null;
+        const stage = m.stageId
+          ? {
+              stageId: m.stageId,
+              ...(m.groupIndex != null ? { groupIndex: m.groupIndex } : {}),
+              ...(m.matchKey ? { matchKey: m.matchKey } : {}),
+              ...(m.slotA ? { slotA: m.slotA } : {}),
+              ...(m.slotB ? { slotB: m.slotB } : {}),
+              ...(m.penaltyOnly ? { penaltyOnly: true } : {}),
+              ...(m.decidedBy ? { decidedBy: m.decidedBy } : {}),
+              ...(m.walkoverWinner ? { walkoverWinner: m.walkoverWinner } : {}),
+              ...(r && r.penaltiesA != null && r.penaltiesB != null ? { penaltiesA: r.penaltiesA, penaltiesB: r.penaltiesB } : {}),
+            }
+          : {};
         return {
+          ...stage,
           id: m.matchId,
           roundNumber: m.roundNumber,
           teamAId: m.teamAId,
@@ -468,8 +549,28 @@ export class FirestoreTournamentStore implements TournamentService {
         };
       }),
       byes: e.rounds.value.flatMap((r) => (r.byeTeamIds ?? []).map((teamId) => ({ roundNumber: r.number, teamId }))),
-      ...(d.visibility === 'full' && e.standings.value ? { standings: e.standings.value.rows } : {}),
+      ...(d.visibility === 'full' && e.standings.value && !d.format ? { standings: e.standings.value.rows } : {}),
       ...(d.timing ? { timing: d.timing } : {}),
+      ...(d.format
+        ? {
+            format: d.format,
+            groupDraws: e.stages.value.map((s) => ({ stageId: s.stageId ?? s.id, groups: teamIdLists(s.groups) })),
+            ...(d.visibility === 'full'
+              ? {
+                  lots: e.stages.value.flatMap((s) =>
+                    (s.lots ?? []).map((l) => ({
+                      id: l.id,
+                      stageId: s.stageId ?? s.id,
+                      ...(l.groupIndex != null ? { groupIndex: l.groupIndex } : {}),
+                      ...(l.place != null ? { place: l.place } : {}),
+                      order: [...l.order],
+                      atISO: l.atISO,
+                    })),
+                  ),
+                }
+              : {}),
+          }
+        : {}),
       updatedAt: iso(d.updatedAt) ?? new Date().toISOString(),
     };
   }
@@ -502,6 +603,8 @@ export class FirestoreTournamentStore implements TournamentService {
 
   /** Tabelle nach einer Spieländerung, für die öffentliche Projektion. */
   private standingsAfter(tid: string): MatchWriteOptions {
+    // Baukasten: Tabellen rechnet die Zuschauerseite selbst aus Ergebnissen und Gruppen.
+    if (this.priv.get(tid)?.tournament.value?.format) return {};
     return {
       standingsAfter: (updated: MatchDoc & { id: string }) => {
         const d = this.data(tid);
@@ -513,6 +616,7 @@ export class FirestoreTournamentStore implements TournamentService {
   }
 
   private standingsFor(d: TournamentData) {
+    if (d.tournament.format) return undefined;
     return { rows: computeStandings(d), throughRound: d.tournament.currentRound };
   }
 
@@ -524,7 +628,9 @@ export class FirestoreTournamentStore implements TournamentService {
   }
 
   async createTournament(draft: WizardDraft, publish: boolean): Promise<string> {
-    if (draft.format) throw notYet();
+    if (draft.format && draft.format.stages.length === 0) {
+      throw new DataError('invalid_input', 'Das Turnier braucht mindestens einen Abschnitt.');
+    }
     const actor = this.actor();
     const db = this.db;
     const requested = /^[A-Za-z0-9_-]{1,64}$/.test(draft.id) ? draft.id : undefined;
@@ -555,6 +661,7 @@ export class FirestoreTournamentStore implements TournamentService {
           allocation: draft.allocation,
         },
         fieldIds: [],
+        ...(draft.format ? { format: draft.format } : {}),
       },
       { tournamentId: requested },
     );
@@ -570,7 +677,9 @@ export class FirestoreTournamentStore implements TournamentService {
       active: true,
     }));
     const teams: Team[] = [];
+    const teamIdMap = new Map<string, string>();
     for (const [i, t] of draft.teams.filter((x) => x.name.trim()).entries()) {
+      teamIdMap.set(t.id, `${tid}-t${i + 1}`);
       const logoAssetId = await asset(t.logo, 'team');
       teams.push({
         id: `${tid}-t${i + 1}`,
@@ -606,6 +715,26 @@ export class FirestoreTournamentStore implements TournamentService {
       ...(organizerAssetId ? { organizerAssetId } : {}),
       ...(eventAssetId ? { eventAssetId } : {}),
     });
+
+    if (draft.format) {
+      // Baukasten: keine Schweizer-System-Runde. Zuschauer sehen erst nach „Veröffentlichen“ etwas.
+      await syncPublicTournament(db, tid, { isPublic: false });
+      const remap = (ids: string[]) => ids.map((id) => teamIdMap.get(id) ?? id);
+      for (const g of draft.groupDraws ?? []) {
+        await saveStageDraw(db, actor, tid, {
+          stageId: g.stageId,
+          groups: g.groups.map(remap),
+          mode: g.mode,
+          ...(g.pots ? { pots: g.pots.map(remap) } : {}),
+          ...(g.seed !== undefined ? { seed: g.seed } : {}),
+        });
+      }
+      if (publish) {
+        await setTournamentStatus(db, actor, tid, revision, 'published');
+        await syncPublicTournament(db, tid, { isPublic: true });
+      }
+      return tid;
+    }
 
     if (publish) {
       revision = await setTournamentStatus(db, actor, tid, revision, 'published');
@@ -690,6 +819,10 @@ export class FirestoreTournamentStore implements TournamentService {
         hardRestMinutes: t.schedule.optionalHardRestMinutes ?? null,
         allocation: t.schedule.allocation,
         visibility: t.visibility,
+        ...(t.format ? { format: t.format } : {}),
+        ...(src.groupDraws
+          ? { groupDraws: src.groupDraws.map((g) => ({ stageId: g.stageId, groups: g.groups, mode: g.mode, ...(g.pots ? { pots: g.pots } : {}) })) }
+          : {}),
       },
       false,
     );
@@ -717,10 +850,14 @@ export class FirestoreTournamentStore implements TournamentService {
   }
 
   async recordScore(tid: string, matchId: string, goalsA: number, goalsB: number): Promise<void> {
+    const d = this.data(tid);
+    assertPlayable(d, matchId);
+    const decision = scoreEditDecision(d, matchId, goalsA, goalsB);
     const m = this.match(tid, matchId);
     await recordResult(this.db, this.actor(), tid, matchId, goalsA, goalsB, m.revision, {
       ...this.standingsAfter(tid),
       finish: m.status === 'completed',
+      ...(decision ? { decided: { ...decision, penaltiesA: null, penaltiesB: null } } : {}),
     });
     await this.markRunning(tid);
   }
@@ -729,6 +866,7 @@ export class FirestoreTournamentStore implements TournamentService {
     const m = this.match(tid, matchId);
     const actor = this.actor();
     const opts = this.standingsAfter(tid);
+    if (status !== 'scheduled') assertPlayable(this.data(tid), matchId);
     if (status === 'scheduled') {
       if (m.status !== 'scheduled') await resetMatchToScheduled(this.db, actor, tid, matchId, m.revision, opts);
     } else if (status === 'live') {
@@ -740,9 +878,11 @@ export class FirestoreTournamentStore implements TournamentService {
       }
       await this.markRunning(tid);
     } else {
+      const decidedBy = checkFinishWithoutDecider(this.data(tid), matchId);
       await recordResult(this.db, actor, tid, matchId, m.goalsA ?? 0, m.goalsB ?? 0, m.revision, {
         ...opts,
         finish: true,
+        ...(decidedBy ? { decided: { decidedBy, penaltiesA: null, penaltiesB: null } } : {}),
       });
       await this.markRunning(tid);
     }
@@ -1038,51 +1178,139 @@ export class FirestoreTournamentStore implements TournamentService {
         await setTournamentStatus(this.db, actor, tid, d.tournament.revision, 'running', undo);
         return;
       case 'layout':
+        await this.changeMatches(
+          tid,
+          'matches.undo',
+          (x) => {
+            for (const snap of plan.target) {
+              const m = x.matches.find((y) => y.id === snap.id);
+              if (!m) continue;
+              applyLayoutSnap(m, snap);
+              if (plan.reopen && m.status === 'not_played' && m.decidedBy === 'walkover') {
+                m.status = 'scheduled';
+                m.notPlayedReason = undefined;
+                m.decidedBy = undefined;
+                m.walkoverWinner = undefined;
+              }
+            }
+            return { before: plan.current, after: plan.target };
+          },
+          {},
+          entry.id,
+        );
+        return;
       case 'group-draw':
-        throw notYet();
+        await this.saveGroupDraw(tid, plan.draw, entry.id);
+        return;
     }
   }
 
-  // Turnier-Baukasten: kommt mit dem nächsten Schritt (Ablage in Firestore und Schutzregeln).
-  // Bis dahin arbeiten die Oberflächen gegen den mockStore.
-  async saveGroupDraw(): Promise<void> {
-    throw notYet();
+  // ---------- Turnier-Baukasten ----------
+
+  private formatData(tid: string): TournamentData & { resultsRevision: number } {
+    const d = this.data(tid);
+    assertFormat(d);
+    return d;
   }
 
-  async saveStagePlan(): Promise<string[]> {
-    throw notYet();
+  /**
+   * Änderung an mehreren Spielen: dieselbe Prüfung und Änderung wie im mockStore auf einer Kopie,
+   * dann nur die Unterschiede atomar speichern (mit erwarteter Revision je Spiel).
+   */
+  private async changeMatches(
+    tid: string,
+    action: string,
+    fn: (d: TournamentData) => { before: LayoutSnap[]; after: LayoutSnap[] } | void,
+    /** Zusatzangaben für den Verlauf; als Funktion, wenn sie erst nach `fn` feststehen. */
+    extra: Record<string, unknown> | (() => Record<string, unknown>) = {},
+    undoOf?: string,
+  ): Promise<void> {
+    const d = this.formatData(tid);
+    const copy: TournamentData = structuredClone(d);
+    const res = fn(copy);
+    const changes = diffMatches(d.matches, copy.matches);
+    if (changes.writes.length === 0 && (changes.deletes ?? []).length === 0) return;
+    await commitMatchChanges(this.db, this.actor(), tid, changes, {
+      action,
+      before: res ? { matches: res.before } : undefined,
+      after: { ...(res ? { matches: res.after } : {}), ...(typeof extra === 'function' ? extra() : extra) },
+      undoOf,
+    });
   }
 
-  async finishKnockoutMatch(): Promise<void> {
-    throw notYet();
+  async saveGroupDraw(tid: string, draw: Omit<GroupDraw, 'updatedAt'>, undoOf?: string): Promise<void> {
+    const clean = checkGroupDraw(this.formatData(tid), draw);
+    await saveStageDraw(this.db, this.actor(), tid, clean, { undoOf });
   }
 
-  async swapMatches(): Promise<void> {
-    throw notYet();
+  async saveStagePlan(tid: string, matches: PlannedStageMatch[]): Promise<string[]> {
+    let ids: string[] = [];
+    await this.changeMatches(
+      tid,
+      'schedule.save',
+      (d) => {
+        ids = applyStagePlan(d, matches, () => newMatchId(this.db, tid), new Date().toISOString());
+      },
+      () => ({ matchCount: ids.length }),
+    );
+    return ids;
   }
 
-  async swapTeams(): Promise<void> {
-    throw notYet();
+  async finishKnockoutMatch(tid: string, matchId: string, result: KnockoutResult): Promise<void> {
+    const d = this.formatData(tid);
+    checkKnockoutResult(d, matchId, result);
+    const m = this.match(tid, matchId);
+    await recordResult(this.db, this.actor(), tid, matchId, result.goalsA, result.goalsB, m.revision, {
+      finish: true,
+      decided: {
+        decidedBy: result.decidedBy,
+        penaltiesA: result.decidedBy === 'penalties' ? result.penaltiesA : null,
+        penaltiesB: result.decidedBy === 'penalties' ? result.penaltiesB : null,
+      },
+    });
+    await this.markRunning(tid);
   }
 
-  async moveMatch(): Promise<void> {
-    throw notYet();
+  swapMatches(tid: string, matchIdA: string, matchIdB: string): Promise<void> {
+    return this.changeMatches(tid, 'match.swap', (d) => swapMatchesIn(d, matchIdA, matchIdB));
   }
 
-  async confirmSlotFills(): Promise<void> {
-    throw notYet();
+  swapTeams(tid: string, a: MatchSide, b: MatchSide): Promise<void> {
+    return this.changeMatches(tid, 'match.swap_teams', (d) => swapSidesIn(d, a, b));
   }
 
-  async saveLot(): Promise<void> {
-    throw notYet();
+  moveMatch(tid: string, matchId: string, move: MatchMove): Promise<void> {
+    return this.changeMatches(tid, 'match.move', (d) => moveMatchIn(d, matchId, move));
   }
 
-  async withdrawQualifiedTeam(): Promise<void> {
-    throw notYet();
+  confirmSlotFills(tid: string, fills: SlotFill[]): Promise<void> {
+    return this.changeMatches(tid, 'finals.fill', (d) => fillSlotsIn(d, fills));
   }
 
-  async publishTournament(): Promise<void> {
-    throw notYet();
+  async saveLot(tid: string, lot: Omit<LotDecision, 'id' | 'atISO'>): Promise<void> {
+    const d = this.formatData(tid);
+    if (!d.tournament.format?.stages.some((s) => s.id === lot.stageId)) throw new DataError('invalid_input', 'Unbekannter Abschnitt.');
+    await saveStageLot(this.db, this.actor(), tid, lot);
+  }
+
+  async withdrawQualifiedTeam(tid: string, teamId: string, choice: WithdrawalChoice): Promise<void> {
+    const before = this.formatData(tid);
+    // Erst die Endrunden-Spiele umstellen, dann die übrigen offenen Spiele wie beim normalen Rückzug.
+    await this.changeMatches(tid, 'team.withdraw_qualified', (d) => withdrawQualifiedIn(d, teamId, choice), {
+      teamId,
+      choice: choice.kind,
+      ...(choice.kind === 'replace' ? { byTeamId: choice.byTeamId } : {}),
+    });
+    if (before.teams.find((t) => t.id === teamId)?.status === 'active') {
+      await withdrawTeamData(this.db, this.actor(), tid, teamId, {});
+    }
+  }
+
+  async publishTournament(tid: string): Promise<void> {
+    const t = this.formatData(tid).tournament;
+    if (t.status !== 'draft') return;
+    await setTournamentStatus(this.db, this.actor(), tid, t.revision, 'published');
+    await syncPublicTournament(this.db, tid, { isPublic: true });
   }
 
   /** Alle Abos beenden (z. B. beim Abmelden oder in Tests). */

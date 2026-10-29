@@ -18,6 +18,7 @@ import {
   checkGroupDraw,
   checkKnockoutResult,
   fillSlotsIn,
+  scoreEditDecision,
   moveMatchIn,
   swapMatchesIn,
   swapSidesIn,
@@ -44,6 +45,8 @@ import type {
 const STORAGE_KEY = 'turnier-demo-v1';
 const HISTORY_KEY = 'turnier-demo-verlauf-v1';
 const HISTORY_LIMIT = 300;
+
+const teamLists = (v: string[][]) => v.map((teamIds) => ({ teamIds }));
 
 export function uid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -343,11 +346,17 @@ export class MockTournamentStore implements TournamentService {
     }
     const src = this.get(tid);
     if (src) assertPlayable(src, matchId);
+    const decision = src ? scoreEditDecision(src, matchId, goalsA, goalsB) : undefined;
     const final = this.get(tid)?.matches.find((m) => m.id === matchId)?.status === 'completed';
     this.logMatch(tid, matchId, final ? 'match.result.final' : 'match.result.live', () =>
       this.mutateMatch(tid, matchId, (m) => {
         m.goalsA = goalsA;
         m.goalsB = goalsB;
+        if (decision) {
+          m.decidedBy = decision.decidedBy;
+          m.penaltiesA = undefined;
+          m.penaltiesB = undefined;
+        }
         if (m.status === 'scheduled') m.status = 'live';
       }),
     );
@@ -791,8 +800,9 @@ export class MockTournamentStore implements TournamentService {
       action: 'groups.draw',
       targetType: 'stage',
       targetId: clean.stageId,
-      before: b ? { groups: b.groups, mode: b.mode, ...(b.pots ? { pots: b.pots } : {}) } : null,
-      after: { groups: clean.groups, mode: clean.mode },
+      // Wie in Firestore (keine Listen in Listen): Gruppen als `{ teamIds }`.
+      before: b ? { groups: teamLists(b.groups), mode: b.mode, ...(b.pots ? { pots: teamLists(b.pots) } : {}) } : null,
+      after: { groups: teamLists(clean.groups), mode: clean.mode },
     });
   }
 

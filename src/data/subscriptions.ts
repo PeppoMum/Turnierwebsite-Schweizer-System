@@ -22,10 +22,12 @@ import type {
   PublicMatchDoc,
   PublicResultDoc,
   PublicRoundDoc,
+  PublicStageDoc,
   PublicStandingsDoc,
   PublicTournamentDoc,
   RoleGrantDoc,
   SponsorDoc,
+  StageDoc,
   TeamDoc,
   TournamentRefDoc,
 } from './model';
@@ -122,6 +124,14 @@ export const subscribePublicStandings = (
   onError?: OnError,
 ) => subscribeDoc(paths.publicStandings(db, tid), onData, onError);
 
+/** Baukasten: Gruppeneinteilung (und im Modus `full` die Lose). */
+export const subscribePublicStages = (
+  db: Firestore,
+  tid: string,
+  onData: (stages: WithId<PublicStageDoc>[], m: LiveMeta) => void,
+  onError?: OnError,
+) => subscribeQuery(paths.publicStages(db, tid), onData, onError);
+
 export const subscribePublicAsset = (
   db: Firestore,
   tid: string,
@@ -180,6 +190,14 @@ export const subscribeSponsors = (
   onData: (sponsors: WithId<SponsorDoc>[], m: LiveMeta) => void,
   onError?: OnError,
 ) => subscribeQuery(query(paths.sponsors(db, tid), orderBy('order')), onData, onError);
+
+/** Baukasten: Gruppeneinteilung und Lose je Abschnitt. */
+export const subscribeStages = (
+  db: Firestore,
+  tid: string,
+  onData: (stages: WithId<StageDoc>[], m: LiveMeta) => void,
+  onError?: OnError,
+) => subscribeQuery(paths.stages(db, tid), onData, onError);
 
 export const subscribeByes = (
   db: Firestore,

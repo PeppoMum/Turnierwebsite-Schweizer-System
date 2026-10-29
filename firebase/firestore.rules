@@ -302,6 +302,24 @@ service cloud.firestore {
           || (d.status in ['draft', 'scheduled', 'cancelled'] && noGoals(d));
       }
 
+      // Baukasten: Neunmeter-Treffer nur bei beendetem Spiel, das per Neunmeterschießen entschieden
+      // wurde, nach Unentschieden und mit einem Sieger.
+      function penaltiesOk(d) {
+        return (d.get('penaltiesA', null) == null && d.get('penaltiesB', null) == null)
+          || (d.status == 'completed' && d.get('decidedBy', null) == 'penalties'
+              && isGoal(d.penaltiesA) && isGoal(d.penaltiesB)
+              && d.penaltiesA != d.penaltiesB && d.goalsA == d.goalsB);
+      }
+
+      // Baukasten-Spiel, das noch nicht angepfiffen ist und es bleibt: Teams und Platzhalter dürfen
+      // sich ändern (tauschen, Endrunde füllen, Nachrücker), Abschnitt und Runde nicht.
+      function openStageMatchRepaired() {
+        return resource.data.get('stageId', null) != null
+          && resource.data.status == 'scheduled'
+          && request.resource.data.status == 'scheduled'
+          && unchanged(['roundId', 'roundNumber', 'stageId']);
+      }
+
       function resultRelevantChange() {
         return request.resource.data.diff(resource.data).affectedKeys().hasAny(['goalsA', 'goalsB'])
           || (resource.data.status == 'completed') != (request.resource.data.status == 'completed');
@@ -339,21 +357,26 @@ service cloud.firestore {
       // Wer darf welche Spieländerung? Die Rolle kommt einmal berechnet herein.
       function matchChangeAllowed(tid, role) {
         return
-          // Owner: alles außer zurück in den Entwurf; Paarung nur im Entwurf änderbar.
+          // Owner: alles außer zurück in den Entwurf; Paarung nur im Entwurf änderbar
+          // (Baukasten: auch bei noch nicht angepfiffenen Spielen).
           (role == 'owner'
             && (resource.data.status == 'draft' || request.resource.data.status != 'draft')
             && (resource.data.status == 'draft'
-                || unchanged(['teamAId', 'teamBId', 'roundId', 'roundNumber'])))
+                || unchanged(['teamAId', 'teamBId', 'roundId', 'roundNumber'])
+                || openStageMatchRepaired()))
           // Freigabe: draft -> scheduled.
           || (canPublishAs(tid, role)
             && resource.data.status == 'draft'
             && request.resource.data.status == 'scheduled'
             && onlyChanges(['status', 'revision', 'updatedAt', 'updatedBy', 'lastAuditId']))
-          // Helfer: nur Score- und Statusfelder.
+          // Helfer: nur Score- und Statusfelder (Baukasten: auch Neunmeter/Verlängerung), und nur,
+          // wenn beide Teams feststehen.
           || (isHelperRole(role)
+            && resource.data.teamAId != '' && resource.data.teamBId != ''
             && fieldAllowed(tid, resource.data.get('fieldId', null))
             && helperTransitionOk(role, resource.data.status, request.resource.data.status)
             && onlyChanges(['status', 'goalsA', 'goalsB', 'completedAt', 'notPlayedReason',
+                            'decidedBy', 'penaltiesA', 'penaltiesB',
                             'revision', 'updatedAt', 'updatedBy', 'lastAuditId']));
       }
 
@@ -365,18 +388,38 @@ service cloud.firestore {
           && request.resource.data.status in ['draft', 'scheduled']
           && request.resource.data.teamAId is string
           && request.resource.data.teamBId is string
-          && request.resource.data.teamAId != request.resource.data.teamBId
-          && scoreFitsStatus(request.resource.data);
+          // Baukasten: Platzhalter-Spiele haben noch keine Teams (beide leer).
+          && (request.resource.data.teamAId != request.resource.data.teamBId
+              || (request.resource.data.teamAId == ''
+                  && request.resource.data.get('stageId', null) != null))
+          && scoreFitsStatus(request.resource.data)
+          && penaltiesOk(request.resource.data);
 
         allow update: if request.resource.data.revision == resource.data.revision + 1
           && stampedNow('updatedAt')
           && unchanged(['createdAt'])
           && scoreFitsStatus(request.resource.data)
+          && penaltiesOk(request.resource.data)
           && auditedBy(tid, matchId)
           && (!resultRelevantChange() || resultsCounterBumped(tid))
           && matchChangeAllowed(tid, myRole(tid));
 
-        allow delete: if isOwner(tid) && resource.data.status == 'draft';
+        // Baukasten: ein neuer Spielplan ersetzt noch nicht angepfiffene Spiele.
+        allow delete: if isOwner(tid)
+          && (resource.data.status == 'draft'
+              || (resource.data.get('stageId', null) != null && resource.data.status == 'scheduled'));
+      }
+
+      // ---------- Baukasten: Gruppeneinteilung und Lose ----------
+
+      match /stages/{stageId} {
+        allow read: if isMember(tid);
+        allow create, update: if isOwner(tid)
+          && request.resource.data.keys().hasOnly(['stageId', 'groups', 'mode', 'pots', 'seed',
+               'lots', 'updatedAt'])
+          && request.resource.data.stageId == stageId
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isOwner(tid);
       }
 
       // ---------- Audit (unveränderlich) ----------
@@ -553,7 +596,7 @@ service cloud.firestore {
                                  'timeZone', 'organizerAssetId', 'eventAssetId', 'themeColor',
                                  'status', 'visibility', 'isPublic', 'roundsTotal',
                                  'currentRound', 'teams', 'fields', 'sponsors',
-                                 'timing', 'sourceRevision', 'updatedAt'])
+                                 'timing', 'format', 'sourceRevision', 'updatedAt'])
           && d.tournamentId == tid
           && d.isPublic is bool
           && validVisibility(d.visibility)
@@ -578,11 +621,13 @@ service cloud.firestore {
         allow delete: if isOwner(tid);
       }
 
-      // Paarungen, Felder, Anstoßzeiten und Status – niemals Tore.
+      // Paarungen, Felder, Anstoßzeiten und Status – niemals Tore oder Neunmeter-Treffer.
       function validPublicMatch(d) {
         return d.keys().hasOnly(['matchId', 'roundId', 'roundNumber', 'teamAId', 'teamBId',
                                  'fieldId', 'waveIndex', 'startISO', 'durationMinutes',
-                                 'status', 'sourceRevision', 'updatedAt'])
+                                 'status', 'stageId', 'groupIndex', 'matchKey', 'slotA', 'slotB',
+                                 'penaltyOnly', 'decidedBy', 'walkoverWinner',
+                                 'sourceRevision', 'updatedAt'])
           && d.status in ['scheduled', 'live', 'completed', 'not_played', 'cancelled']
           && d.updatedAt == request.time;
       }
@@ -591,11 +636,16 @@ service cloud.firestore {
         allow read: if pubReadable();
         allow create, update: if validPublicMatch(request.resource.data)
           && (canPublish(tid)
-            // Helfer spiegeln nur den Status des privaten Spiels nach diesem Request.
+            // Helfer spiegeln nur den Status (Baukasten: und wie entschieden wurde) des privaten
+            // Spiels nach diesem Request.
             || (isHelper(tid)
               && request.method == 'update'
-              && onlyChanges(['status', 'sourceRevision', 'updatedAt'])
+              && onlyChanges(['status', 'decidedBy', 'walkoverWinner', 'sourceRevision', 'updatedAt'])
               && request.resource.data.status == getAfter(matchPath(tid, matchId)).data.status
+              && request.resource.data.get('decidedBy', null)
+                   == getAfter(matchPath(tid, matchId)).data.get('decidedBy', null)
+              && request.resource.data.get('walkoverWinner', null)
+                   == getAfter(matchPath(tid, matchId)).data.get('walkoverWinner', null)
               && request.resource.data.sourceRevision
                    == getAfter(matchPath(tid, matchId)).data.revision));
         allow delete: if isOwner(tid);
@@ -605,7 +655,7 @@ service cloud.firestore {
         allow read: if pubReadable() && resultsVisible();
         allow create, update: if pubAfter().visibility in ['full', 'no_standings']
           && request.resource.data.keys().hasOnly(['matchId', 'roundId', 'status', 'goalsA',
-               'goalsB', 'sourceRevision', 'updatedAt'])
+               'goalsB', 'penaltiesA', 'penaltiesB', 'sourceRevision', 'updatedAt'])
           && request.resource.data.matchId == matchId
           && request.resource.data.updatedAt == request.time
           && (isOwner(tid)
@@ -616,6 +666,10 @@ service cloud.firestore {
                    == getAfter(matchPath(tid, matchId)).data.get('goalsA', null)
               && request.resource.data.get('goalsB', null)
                    == getAfter(matchPath(tid, matchId)).data.get('goalsB', null)
+              && request.resource.data.get('penaltiesA', null)
+                   == getAfter(matchPath(tid, matchId)).data.get('penaltiesA', null)
+              && request.resource.data.get('penaltiesB', null)
+                   == getAfter(matchPath(tid, matchId)).data.get('penaltiesB', null)
               && request.resource.data.sourceRevision
                    == getAfter(matchPath(tid, matchId)).data.revision));
         allow delete: if isOwner(tid);
@@ -631,6 +685,19 @@ service cloud.firestore {
                'updatedAt'])
           && request.resource.data.rows is list
           && request.resource.data.rows.size() <= 64
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isOwner(tid);
+      }
+
+      // Baukasten: Gruppeneinteilung. Lose verraten die Reihenfolge in der Tabelle und stehen
+      // deshalb nur im Modus `full` drin.
+      match /publicStages/{stageId} {
+        allow read: if pubReadable();
+        allow create, update: if isOwner(tid)
+          && request.resource.data.keys().hasOnly(['stageId', 'groups', 'lots', 'updatedAt'])
+          && request.resource.data.stageId == stageId
+          && request.resource.data.groups is list
+          && (!('lots' in request.resource.data) || pubAfter().visibility == 'full')
           && request.resource.data.updatedAt == request.time;
         allow delete: if isOwner(tid);
       }

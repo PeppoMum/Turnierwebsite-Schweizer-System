@@ -1,0 +1,459 @@
+/* Assistent „Turnier anlegen“ mit Baukasten. Farben nur über die Rollen aus tokens.css,
+   dazu die Medaillenfarben aus dem Style Guide. */
+.wz {
+  --gold: #d9a400;
+  --silver: #8a94a6;
+  --bronze: #b87333;
+  --gold-s: color-mix(in srgb, var(--gold) 12%, var(--card));
+  --silver-s: color-mix(in srgb, var(--silver) 12%, var(--card));
+  --bronze-s: color-mix(in srgb, var(--bronze) 12%, var(--card));
+}
+
+.wz-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.wz-settings {
+  flex: 1 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.wz-sketch {
+  flex: 999 1 520px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  top: 12px;
+}
+
+.wz-sep {
+  height: 1px;
+  background: var(--ln);
+}
+
+.wz-h {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.wz-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wz-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wz-chips .chip {
+  min-width: 40px;
+  justify-content: center;
+}
+
+.wz-counter {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.wz-counter .input {
+  width: 64px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.wz-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--mu);
+}
+
+.wz-dot.gold {
+  background: var(--gold);
+}
+
+.wz-dot.silver {
+  background: var(--silver);
+}
+
+.wz-dot.bronze {
+  background: var(--bronze);
+}
+
+.wz-round {
+  border: 1px solid var(--ln);
+  border-radius: var(--r-ctl);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wz-round-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.wz-round-head .grow {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.wz-best {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+
+.wz-best .select {
+  width: auto;
+  min-width: 0;
+}
+
+/* Live-Skizze */
+.wz-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.wz-kpis .kpi b {
+  font-size: 24px;
+}
+
+.wz-phase-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--mu);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wz-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.wz-tile {
+  border: 1px solid var(--ln);
+  border-radius: var(--r-ctl);
+  padding: 10px 12px;
+  background: var(--bg);
+  min-width: 0;
+}
+
+.wz-tile b {
+  display: block;
+  font-size: 14px;
+}
+
+.wz-tile span {
+  font-size: 12px;
+  color: var(--mu);
+}
+
+.wz-arrows {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  font-size: 12px;
+  color: var(--mu);
+  text-align: center;
+}
+
+.wz-final {
+  border: 2px solid var(--ln);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--soft);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wz-final.gold {
+  border-color: var(--gold);
+  background: var(--gold-s);
+}
+
+.wz-final.silver {
+  border-color: var(--silver);
+  background: var(--silver-s);
+}
+
+.wz-final.bronze {
+  border-color: var(--bronze);
+  background: var(--bronze-s);
+}
+
+.wz-final > b {
+  font-size: 14px;
+}
+
+.wz-step {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--ln);
+  font-size: 13px;
+}
+
+.wz-step span {
+  color: var(--mu);
+  white-space: nowrap;
+}
+
+.wz-out {
+  border: 1px dashed var(--ln);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--mu);
+}
+
+.wz-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px;
+  border-radius: var(--r-ctl);
+  background: var(--bg);
+}
+
+.wz-mini div {
+  display: flex;
+  gap: 4px;
+}
+
+.wz-mini span {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+  border: 1px solid var(--ln);
+  color: var(--mu);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.wz-mini span.gold {
+  background: var(--gold-s);
+  border-color: var(--gold);
+  color: var(--tx);
+}
+
+.wz-mini span.silver {
+  background: var(--silver-s);
+  border-color: var(--silver);
+  color: var(--tx);
+}
+
+.wz-mini span.bronze {
+  background: var(--bronze-s);
+  border-color: var(--bronze);
+  color: var(--tx);
+}
+
+.wz-mini-nums {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+
+/* Endrunde als Auswahlkarten (Handy) */
+.wz-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wz-opt {
+  font: inherit;
+  text-align: left;
+  color: var(--tx);
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid var(--ln);
+  border-radius: 12px;
+  background: var(--card);
+  width: 100%;
+  cursor: pointer;
+}
+
+.wz-opt[aria-pressed='true'] {
+  border: 2px solid var(--ac);
+  background: var(--acs);
+}
+
+.wz-opt .rd {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--mu);
+  box-sizing: border-box;
+  flex: none;
+  margin-top: 1px;
+}
+
+.wz-opt[aria-pressed='true'] .rd {
+  border: 6px solid var(--ac);
+}
+
+.wz-opt b {
+  display: block;
+  font-size: 15px;
+}
+
+.wz-opt span {
+  font-size: 13px;
+  color: var(--mu);
+}
+
+/* Gruppen auslosen */
+.wz-draw-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wz-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.wz-group {
+  background: var(--card);
+  border: 1px solid var(--ln);
+  border-radius: var(--r-card);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wz-group.target {
+  border-color: var(--ac);
+  box-shadow: 0 0 0 3px var(--acs);
+}
+
+.wz-group-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 4px;
+}
+
+.wz-team {
+  font: inherit;
+  color: var(--tx);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--ln);
+  border-radius: var(--r-ctl);
+  background: var(--card);
+  font-size: 14px;
+  cursor: grab;
+  width: 100%;
+  text-align: left;
+}
+
+.wz-team[aria-pressed='true'] {
+  border-color: var(--ac);
+  background: var(--acs);
+}
+
+.wz-team .name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wz-team .grip {
+  color: var(--mu);
+  letter-spacing: -2px;
+}
+
+.wz-drop {
+  font: inherit;
+  min-height: 40px;
+  border: 1.5px dashed var(--ac);
+  border-radius: var(--r-ctl);
+  background: var(--acs);
+  color: var(--ac);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.wz-pots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 6px 12px;
+}
+
+.wz-pots .list-row {
+  gap: 8px;
+}
+
+.wz-pots .select {
+  width: auto;
+}
+
+@media (max-width: 760px) {
+  .wz-sketch {
+    order: -1;
+    position: static;
+  }
+
+  .wz-settings {
+    flex-basis: 100%;
+  }
+}

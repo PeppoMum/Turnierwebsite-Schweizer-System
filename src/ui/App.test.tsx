@@ -81,7 +81,7 @@ describe('App', () => {
 
   it('lässt im Assistenten nicht ohne Turniernamen weiter', () => {
     renderAt('#/neu');
-    fireEvent.click(screen.getByRole('button', { name: /Weiter zu Teilnehmer/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Weiter zu Turnierform/ }));
     expect(screen.getByText(/Gib dem Turnier einen Namen/, { selector: '.notice span' })).toBeInTheDocument();
   });
 

@@ -1,14 +1,16 @@
 // Tabellen, Endrunden-Übersicht und Endplatzierung für Turniere mit Gruppen und Endrunde.
 // Wird in der Turnierleitung (Reiter „Tabelle“) gezeigt; die Druckansicht hat eine eigene, schlichte Fassung.
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { Match } from '../../../../domain';
-import type { StageConfig } from '../../../../domain/format';
+import type { KnockoutStage, StageConfig } from '../../../../domain/format';
 import type { GroupStageStandings } from '../../../../domain/groups';
 import { matchLabel } from '../../../../domain/knockout';
 import { formatGoalDiff } from '../../../../domain/scoring/format';
 import { href } from '../../../router';
 import { Icon } from '../../../components/Icon';
-import { EmptyState } from '../../../components/ui';
+import { EmptyState, MatchStatusPill, Seg } from '../../../components/ui';
+import { Bracket, BracketCard, type BracketMatch, type BracketRound } from '../../../components/bracket/Bracket';
+import { formatTime } from '../../../format';
 import type { AdminCtx } from '../AdminTournament';
 import { StageNotices } from './StageNotices';
 import {
@@ -27,8 +29,10 @@ import './stages.css';
 
 export function StageTables({ ctx }: { ctx: AdminCtx }) {
   const model = useMemo(() => buildStageModel(ctx.data), [ctx.data]);
+  const [view, setView] = useState<'tree' | 'list'>('tree');
   if (!model) return null;
   const finals = model.format.stages.filter(isFinalsStage);
+  const hasTree = finals.some((s) => s.kind === 'knockout');
   return (
     <>
       <div className="row no-print">
@@ -44,12 +48,29 @@ export function StageTables({ ctx }: { ctx: AdminCtx }) {
       })}
       {finals.length > 0 && (
         <section className="section">
-          <h2 className="section-title">Endrunde</h2>
-          <div className="finals-grid-cards">
-            {finals.map((s) => (
-              <FinalsCard key={s.id} ctx={ctx} model={model} stage={s} />
-            ))}
+          <div className="section-head">
+            <h2 className="section-title">Endrunde</h2>
+            {hasTree && (
+              <Seg
+                label="Ansicht"
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: 'tree', label: 'Turnierbaum' },
+                  { value: 'list', label: 'Liste' },
+                ]}
+              />
+            )}
           </div>
+          {hasTree && view === 'tree' ? (
+            finals.map((s) => <StageTree key={s.id} ctx={ctx} model={model} stage={s} />)
+          ) : (
+            <div className="finals-grid-cards">
+              {finals.map((s) => (
+                <FinalsCard key={s.id} ctx={ctx} model={model} stage={s} />
+              ))}
+            </div>
+          )}
         </section>
       )}
       <PlacementSection ctx={ctx} model={model} />
@@ -266,5 +287,86 @@ function PlacementSection({ ctx, model }: { ctx: AdminCtx; model: StageModel }) 
       {open.length > 0 && <span className="small-text">Noch offen: {open.length} {open.length === 1 ? 'Team spielt' : 'Teams spielen'} noch um ihren Platz.</span>}
       {shared && <span className="small-text">Nicht ausgespielte Plätze werden geteilt, zum Beispiel „5.–8.“.</span>}
     </section>
+  );
+}
+
+const TREE_PREFIX: Record<number, string> = { 32: 'R32_', 16: 'R16_', 8: 'QF', 4: 'SF' };
+
+function toBracket(ctx: AdminCtx, model: StageModel, m: Match, title?: string): BracketMatch {
+  const win = winnerSide(m, model.format);
+  const res = resultText(m, model.format);
+  const shown = m.status === 'completed' || m.status === 'live';
+  const side = (s: 'A' | 'B') => {
+    const id = s === 'A' ? m.teamAId : m.teamBId;
+    return {
+      name: sideText(m, s, model.format, ctx.teamName),
+      goals: shown ? ((s === 'A' ? m.goalsA : m.goalsB) ?? 0) : undefined,
+      state: !id ? ('open' as const) : win === s ? ('win' as const) : win ? ('lose' as const) : undefined,
+    };
+  };
+  return {
+    id: m.id,
+    meta: (
+      <>
+        <b>{ctx.fieldName(m.fieldId)}</b> {formatTime(m.startISO, ctx.data.tournament.timeZone)}
+        {title ? ` · ${title}` : ''}
+      </>
+    ),
+    status: <MatchStatusPill status={m.status} />,
+    a: side('A'),
+    b: side('B'),
+    ...(res && res !== `${m.goalsA ?? 0}:${m.goalsB ?? 0}` ? { note: res } : {}),
+    live: m.status === 'live',
+  };
+}
+
+/** Turnierbaum aus P6 (components/bracket); Spiele außerhalb des Hauptbaums (Platz 3 usw.) darunter. */
+function StageTree({ ctx, model, stage }: { ctx: AdminCtx; model: StageModel; stage: StageConfig }) {
+  const own = ctx.data.matches.filter((m) => m.stageId === stage.id);
+  if (stage.kind !== 'knockout') {
+    return (
+      <div className="stack">
+        <h3 className="card-title">{stage.name}</h3>
+        <div className="sched-grid">
+          {own.map((m) => (
+            <BracketCard key={m.id} m={toBracket(ctx, model, m, stageLabel(stage, m.matchKey ?? ''))} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+  const ko = stage as KnockoutStage;
+  const byKey = new Map(own.map((m) => [m.matchKey, m]));
+  const inTree = new Set<string>();
+  const rounds: BracketRound[] = [];
+  for (let size: number = ko.size; size >= 2; size /= 2) {
+    const keys = size === 2 ? ['F'] : Array.from({ length: size / 2 }, (_, i) => `${TREE_PREFIX[size]}${i + 1}`);
+    keys.forEach((k) => inTree.add(k));
+    const matches = keys.map((k): BracketMatch => {
+      const m = byKey.get(k);
+      return m ? toBracket(ctx, model, m) : { id: `${stage.id}-${k}`, a: { name: 'Noch offen', state: 'open' }, b: { name: 'Noch offen', state: 'open' } };
+    });
+    const first = keys.map((k) => byKey.get(k)).find((m) => m?.startISO);
+    rounds.push({ title: roundHeading(stageLabel(ko, keys[0]!)), ...(first ? { sub: formatTime(first.startISO, ctx.data.tournament.timeZone) } : {}), matches });
+  }
+  const extra = own.filter((m) => !inTree.has(m.matchKey ?? '')).sort((a, b) => (a.startISO ?? '').localeCompare(b.startISO ?? ''));
+  return (
+    <div className="stack">
+      <h3 className="card-title">
+        {stage.name}
+        {stage.placeRange && <span className="small-text"> · Platz {stage.placeRange.from}–{stage.placeRange.to}</span>}
+      </h3>
+      <div className="card" style={{ padding: 16 }}>
+        <Bracket rounds={rounds} label={`Turnierbaum ${stage.name}`} />
+      </div>
+      <span className="small-text phone-only">Zum Weiterblättern nach links wischen.</span>
+      {extra.length > 0 && (
+        <div className="sched-grid">
+          {extra.map((m) => (
+            <BracketCard key={m.id} m={toBracket(ctx, model, m, stageLabel(ko, m.matchKey ?? ''))} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

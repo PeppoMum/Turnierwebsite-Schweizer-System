@@ -9,12 +9,13 @@ export type Route =
   | { name: 'public'; id: string; tab: PublicTab }
   | { name: 'invite'; tid: string; inviteId: string }
   | { name: 'helper'; tid: string; linkId: string }
+  | { name: 'referee'; tid: string; linkId: string }
   | { name: 'notFound' };
 
-export type AdminTab = 'live' | 'spielplan' | 'tabelle' | 'teams' | 'einstellungen' | 'verlauf';
+export type AdminTab = 'live' | 'spielplan' | 'tabelle' | 'teams' | 'einstellungen' | 'verlauf' | 'schiris';
 export type PublicTab = 'aktuell' | 'spielplan' | 'team' | 'tabelle' | 'gruppen' | 'endrunde';
 
-const ADMIN_TABS: AdminTab[] = ['live', 'spielplan', 'tabelle', 'teams', 'einstellungen', 'verlauf'];
+const ADMIN_TABS: AdminTab[] = ['live', 'spielplan', 'tabelle', 'teams', 'einstellungen', 'verlauf', 'schiris'];
 const PUBLIC_TABS: PublicTab[] = ['aktuell', 'spielplan', 'team', 'tabelle', 'gruppen', 'endrunde'];
 
 export function parseHash(hash: string): Route {
@@ -32,6 +33,7 @@ export function parseHash(hash: string): Route {
     return PUBLIC_TABS.includes(tab) ? { name: 'public', id: parts[1], tab } : { name: 'notFound' };
   }
   if (parts[0] === 'helfer' && parts[1] && parts[2] && parts.length === 3) return { name: 'helper', tid: parts[1], linkId: parts[2] };
+  if (parts[0] === 'schiri' && parts[1] && parts[2] && parts.length === 3) return { name: 'referee', tid: parts[1], linkId: parts[2] };
   if (parts[0] === 'einladung' && parts[1] && parts[2] && parts.length === 3) return { name: 'invite', tid: parts[1], inviteId: parts[2] };
   return { name: 'notFound' };
 }
@@ -52,6 +54,8 @@ export function href(route: Route): string {
       return `#/einladung/${encodeURIComponent(route.tid)}/${encodeURIComponent(route.inviteId)}`;
     case 'helper':
       return `#/helfer/${encodeURIComponent(route.tid)}/${encodeURIComponent(route.linkId)}`;
+    case 'referee':
+      return `#/schiri/${encodeURIComponent(route.tid)}/${encodeURIComponent(route.linkId)}`;
     default:
       return '#/';
   }
@@ -67,6 +71,12 @@ export function publicUrl(id: string): string {
 export function helperUrl(tid: string, linkId: string): string {
   const { origin, pathname } = window.location;
   return `${origin}${pathname}${href({ name: 'helper', tid, linkId })}`;
+}
+
+/** Vollständige Adresse des Schiri-Links ohne Anmeldung. */
+export function refereeUrl(tid: string, linkId: string): string {
+  const { origin, pathname } = window.location;
+  return `${origin}${pathname}${href({ name: 'referee', tid, linkId })}`;
 }
 
 export function navigate(route: Route): void {

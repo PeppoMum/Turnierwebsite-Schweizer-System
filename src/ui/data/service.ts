@@ -16,6 +16,7 @@ import type {
   PairingPreview,
   PlannedStageMatch,
   PublicTournamentView,
+  RefereeReport,
   ReshapeChange,
   SlotFill,
   TeamEdit,
@@ -111,6 +112,25 @@ export interface TournamentService {
   placeMatches(tid: string, reason: 'compact' | 'longer', placements: MatchPlacement[]): Promise<void>;
   /** Gruppen und Spielplan für Zuschauer freigeben. */
   publishTournament(tid: string): Promise<void>;
+
+  // Schiris (optional, über den Schiri-Link). Nichts davon ändert Spiele, Spielplan oder Tabelle; nur
+  // `acceptRefereeReport` (Turnierleitung) trägt ein gemeldetes Ergebnis als echtes Ergebnis ein.
+
+  /** Schiri-Link ohne Anmeldung ein- oder ausschalten; „renew“ ersetzt ihn, der alte gilt dann nicht mehr. */
+  setOpenRefereeLink(id: string, mode: 'on' | 'off' | 'renew'): Promise<void>;
+  /**
+   * Sich als Schiri mit Namen eintragen oder den Namen ändern. `refereeId` nur für die Turnierleitung
+   * (fremden Namen ändern); sonst gilt die eigene ID. Liefert die ID des Schiris.
+   */
+  saveReferee(tid: string, name: string, refereeId?: string): Promise<string>;
+  /** Schiri austragen (Turnierleitung); seine Spiele werden wieder frei. */
+  removeReferee(tid: string, refereeId: string): Promise<void>;
+  /** Einteilung ändern: je Spiel ein Schiri oder null (frei). */
+  assignReferees(tid: string, changes: Array<{ matchId: string; refereeId: string | null }>): Promise<void>;
+  /** Ergebnis als Schiri melden (null nimmt die Meldung zurück). */
+  reportRefereeResult(tid: string, matchId: string, report: Omit<RefereeReport, 'atISO'> | null): Promise<void>;
+  /** Turnierleitung übernimmt das gemeldete Ergebnis als echtes Ergebnis (Spiel beendet). */
+  acceptRefereeReport(tid: string, matchId: string): Promise<void>;
   /**
    * „Turnier umstellen“: fehlende Teams als nicht erschienen markieren, Format, Einteilung der Vorrunde und alle
    * noch nicht angepfiffenen Spiele in einem Schritt ersetzen. Ein Eintrag im Verlauf, rückgängig machbar.

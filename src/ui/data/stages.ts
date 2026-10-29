@@ -99,7 +99,7 @@ export function assertPlayable(d: TournamentData, matchId: string): void {
   if (m && (!m.teamAId || !m.teamBId)) throw new Error('Die Teams für dieses Spiel stehen noch nicht fest.');
 }
 
-function isKnockoutLike(d: TournamentData, m: Match): boolean {
+export function isKnockoutLike(d: TournamentData, m: Match): boolean {
   const kind = stageOf(d, m.stageId)?.kind;
   return kind === 'knockout' || kind === 'placement';
 }

@@ -32,7 +32,37 @@ export interface TournamentData {
   groupDraws?: GroupDraw[];
   /** Baukasten: gezogene Lose bei Gleichstand. */
   lots?: LotDecision[];
+  /** Schiris, die sich über den Schiri-Link angemeldet haben. */
+  referees?: Referee[];
+  /** Wer pfeift welches Spiel, und was der Schiri als Ergebnis gemeldet hat (je Spiel). */
+  refereeing?: Refereeing[];
 }
+
+/** Ein Schiri, der sich mit dem Schiri-Link selbst eingetragen hat. */
+export interface Referee {
+  id: string;
+  name: string;
+  joinedAt: string;
+}
+
+/**
+ * Schiri-Angaben zu einem Spiel. Nur für Turnierleitung und Schiris sichtbar, nie für Zuschauer.
+ * Ändert nichts am Spiel selbst: Ein gemeldetes Ergebnis zählt erst, wenn die Turnierleitung es übernimmt.
+ */
+export interface Refereeing {
+  matchId: string;
+  /** Wer pfeift; fehlt = noch frei. */
+  refereeId?: string;
+  report?: RefereeReport;
+}
+
+/** Ergebnis, das ein Schiri meldet. In der Endrunde auch Verlängerung oder Neunmeterschießen. */
+export interface RefereeReport extends KnockoutResultFields {
+  refereeId: string;
+  atISO: string;
+}
+
+type KnockoutResultFields = Omit<KnockoutResult, 'decidedBy'> & { decidedBy?: KnockoutResult['decidedBy'] };
 
 /** Gruppeneinteilung eines Gruppenabschnitts (Vorrunde oder Zwischenrunde). */
 export interface GroupDraw {

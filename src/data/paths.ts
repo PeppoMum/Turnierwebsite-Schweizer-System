@@ -7,6 +7,8 @@
 //   invitations/{inviteId}                  Helfer-Einladungen
 //   assets/{assetId}                        kleine Bilder (Data-URL)
 //   stages/{stageId}                        Baukasten: Gruppeneinteilung, Lose
+//   referees/{uid}                          Schiris (über den Schiri-Link), nie öffentlich
+//   refereeing/{matchId}                    wer pfeift, gemeldetes Ergebnis; nie öffentlich
 // publicTournaments/{tid}                   öffentliche Projektion
 //   publicRounds|publicMatches/{id}         ohne Tore
 //   publicResults/{matchId}                 Tore; nicht im Kindermodus
@@ -35,6 +37,8 @@ import {
   type PublicRoundDoc,
   type PublicStandingsDoc,
   type PublicTournamentDoc,
+  type RefereeDoc,
+  type RefereeingDoc,
   type RoleGrantDoc,
   type RoundDoc,
   type SponsorDoc,
@@ -80,6 +84,13 @@ export const paths = {
   stages: (db: Firestore, tid: string) => col<StageDoc>(db, `tournaments/${tid}/stages`),
   stage: (db: Firestore, tid: string, stageId: string) =>
     ref<StageDoc>(db, `tournaments/${tid}/stages/${stageId}`),
+
+  referees: (db: Firestore, tid: string) => col<RefereeDoc>(db, `tournaments/${tid}/referees`),
+  referee: (db: Firestore, tid: string, uid: string) =>
+    ref<RefereeDoc>(db, `tournaments/${tid}/referees/${uid}`),
+  refereeing: (db: Firestore, tid: string) => col<RefereeingDoc>(db, `tournaments/${tid}/refereeing`),
+  refereeingOf: (db: Firestore, tid: string, matchId: string) =>
+    ref<RefereeingDoc>(db, `tournaments/${tid}/refereeing/${matchId}`),
 
   publicTournament: (db: Firestore, tid: string) =>
     ref<PublicTournamentDoc>(db, `publicTournaments/${tid}`),

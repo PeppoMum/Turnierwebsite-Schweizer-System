@@ -10,7 +10,8 @@ export type RoundStatus = 'draft' | 'preview' | 'published' | 'active' | 'closed
 export type PairingMode = 'balanced' | 'strict_no_rematch' | 'performance_first';
 export type TieBreaker = 'head_to_head' | 'goal_diff' | 'goals_for' | 'buchholz';
 export type NotPlayedReason = 'no_show' | 'withdrawal' | 'cancellation' | 'other';
-export type RoleName = 'owner' | 'results_helper' | 'extended_helper';
+/** `referee`: nur über den Schiri-Link; sieht alles, ändert aber keine Spiele (nur Einteilung und Ergebnis-Meldungen). */
+export type RoleName = 'owner' | 'results_helper' | 'extended_helper' | 'referee';
 
 /**
  * Buchholz-Variante (Spezifikation §6.2 verlangt eine explizit gewählte Definition).
@@ -72,6 +73,8 @@ export interface Tournament {
   revision: number;
   /** Geheimer Teil des Helferlinks ohne Anmeldung; fehlt/null = ausgeschaltet. */
   openHelperLinkId?: string | null;
+  /** Geheimer Teil des Schiri-Links ohne Anmeldung; fehlt/null = ausgeschaltet. */
+  openRefereeLinkId?: string | null;
   /** Turnier-Baukasten (docs/turnier-baukasten.md). Fehlt = Schweizer System wie bisher. */
   format?: TournamentFormat;
   publishedAt?: string;

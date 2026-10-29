@@ -1,0 +1,100 @@
+/* Schiri-Ansicht und Reiter „Schiris“ der Turnierleitung. */
+
+.ref-card.mine {
+  border-color: var(--ac);
+}
+
+.ref-duration {
+  background: var(--os);
+  color: var(--o);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ref-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.ref-line .spacer {
+  flex: 1;
+}
+
+.ref-line .select {
+  max-width: 100%;
+}
+
+.ref-who {
+  overflow-wrap: anywhere;
+}
+
+.ref-report {
+  display: grid;
+  gap: 6px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--acs);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.ref-report.accepted {
+  background: var(--gs);
+}
+
+.ref-report.differs {
+  background: var(--ys);
+}
+
+.ref-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ref-plan-list {
+  display: grid;
+  gap: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+  font-size: 14px;
+}
+
+.ref-plan-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--ln);
+}
+
+.ref-plan-row .muted {
+  grid-column: 1 / -1;
+  font-size: 12px;
+}
+
+.ref-plan-teams {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ref-names {
+  display: grid;
+  gap: 6px;
+}
+
+.ref-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ref-name-row .spacer {
+  flex: 1;
+}

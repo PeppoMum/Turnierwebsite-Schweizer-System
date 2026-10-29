@@ -144,3 +144,59 @@
     print-color-adjust: exact;
   }
 }
+
+/* Turnier-Baukasten: Gruppen nebeneinander, Endrunde in Spalten (Runde für Runde). */
+.print-small {
+  font-size: 11px;
+}
+
+.print-slot {
+  font-style: italic;
+  color: #555;
+}
+
+.print-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+.print-group {
+  break-inside: avoid;
+}
+
+.print-group h3,
+.print-bracket-col h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.print-group h3 span {
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.print-bracket {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.print-bracket-col {
+  flex: 1 1 170px;
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.print-bracket-match {
+  border: 1px solid #999;
+  padding: 4px 6px;
+  break-inside: avoid;
+  overflow-wrap: anywhere;
+}
+
+.print-bracket-match .b {
+  font-weight: 700;
+}

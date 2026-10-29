@@ -139,6 +139,8 @@ export interface StageMatchFields {
   decidedBy?: 'regular' | 'extra_time' | 'penalties' | 'walkover';
   penaltiesA?: number;
   penaltiesB?: number;
+  /** Uhrzeit/Feld von Hand gesetzt: eine Neuberechnung des Spielplans lässt sie stehen. */
+  manual?: boolean;
 }
 
 /** Eine Zeile einer Gruppentabelle, gemeinsam genutzt von Gruppen-, K.-o.- und UI-Teil. */

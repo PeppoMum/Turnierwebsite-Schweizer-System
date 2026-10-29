@@ -80,7 +80,9 @@ describe('FirestoreTournamentStore', () => {
     expect(data.byes).toHaveLength(1);
     expect(data.matches.every((m) => m.fieldId && m.startISO)).toBe(true);
     expect(data.tournament.schedule.tournamentStartISO).toBe('2026-11-07T09:00:00.000Z');
-    expect(Object.keys(data.assets)).toHaveLength(2);
+    // Vereinswappen und Sponsorlogo sind dasselbe Bild: es wird nur einmal gespeichert und geteilt.
+    expect(Object.keys(data.assets)).toHaveLength(1);
+    expect(data.sponsors[0]!.assetId).toBe(data.tournament.organizerAssetId);
     expect(owner.getAll().map((d) => d.tournament.id)).toContain(tid);
   });
 

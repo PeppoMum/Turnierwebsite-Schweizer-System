@@ -139,6 +139,8 @@ export interface StageMatchFields {
   decidedBy?: 'regular' | 'extra_time' | 'penalties' | 'walkover';
   penaltiesA?: number;
   penaltiesB?: number;
+  /** Nur bei `decidedBy: 'walkover'`: wer kampflos weiterkommt. */
+  walkoverWinner?: 'A' | 'B';
 }
 
 /** Eine Zeile einer Gruppentabelle, gemeinsam genutzt von Gruppen-, K.-o.- und UI-Teil. */

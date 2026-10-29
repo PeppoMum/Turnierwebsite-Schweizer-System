@@ -139,6 +139,8 @@ export interface StageMatchFields {
   decidedBy?: 'regular' | 'extra_time' | 'penalties' | 'walkover';
   penaltiesA?: number;
   penaltiesB?: number;
+  /** Uhrzeit/Feld von Hand gesetzt: eine Neuberechnung des Spielplans lässt sie stehen. */
+  manual?: boolean;
   /** Nur bei `decidedBy: 'walkover'`: wer kampflos weiterkommt. */
   walkoverWinner?: 'A' | 'B';
 }

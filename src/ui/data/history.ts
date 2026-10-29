@@ -32,6 +32,7 @@ function score(v: Rec): string | undefined {
   const pb = num(v.penaltiesB);
   if (v.decidedBy === 'penalties' && pa !== undefined && pb !== undefined) return `${a}:${b}, ${pa}:${pb} n. N.`;
   if (v.decidedBy === 'extra_time') return `${a}:${b} n. V.`;
+  if (v.decidedBy === 'walkover') return `${a}:${b} (kampflos)`;
   return `${a}:${b}`;
 }
 
@@ -77,6 +78,12 @@ export function describeHistory(entries: HistoryEntry[], data: TournamentData, m
         }
         const label = final ? 'Endstand' : 'Zwischenstand';
         return { text: `${label}: ${matchLabel(e.targetId)} ${now ?? ''}`.trim(), isResult: true };
+      }
+      case 'match.walkover': {
+        const winner = after.walkoverWinner === 'B' ? 'B' : 'A';
+        const m = data.matches.find((x) => x.id === e.targetId);
+        const name = m ? teamName(winner === 'A' ? m.teamAId : m.teamBId) : 'der Gegner';
+        return { text: `Kampflos gewertet: ${matchLabel(e.targetId)} ${score(after) ?? ''}, Sieg für ${name}`, isResult: true };
       }
       case 'match.not_played':
         return { text: `Nicht ausgetragen: ${matchLabel(e.targetId)}`, isResult: true };

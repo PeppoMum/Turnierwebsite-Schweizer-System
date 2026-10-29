@@ -48,3 +48,4 @@ export {
   type ScheduleIssue,
   type CheckOptions,
 } from './swap';
+export { laterSwapOptions, type LaterSwapOption, type LaterSwapResult } from './late';

@@ -8,6 +8,7 @@
 //   damit der Verlauf sie zurücknehmen kann.
 import type { Match, Team } from '../../domain';
 import type { GroupStage, SlotRef, StageConfig } from '../../domain/format';
+import { scoredWalkover, type ScoredWalkover } from '../../domain/groups/walkover';
 import type { GroupDraw, KnockoutResult, MatchMove, MatchSide, PlannedStageMatch, SlotFill, TournamentData, WithdrawalChoice } from './types';
 
 /** Was an einem Spiel von Hand geändert werden kann (für Verlauf und Rückgängig). */
@@ -141,6 +142,24 @@ export function checkKnockoutResult(d: TournamentData, matchId: string, r: Knock
   if (r.decidedBy === 'extra_time' && stageOf(d, m.stageId) && drawDeciderOf(d, m) !== 'extra_time_then_penalties') {
     throw new Error('Für diese Endrunde ist keine Verlängerung eingestellt.');
   }
+}
+
+/**
+ * Gruppenspiel kampflos werten (Team kommt nicht, bleibt aber im Turnier): nur Baukasten-Spiele
+ * außerhalb der Endrunde, die noch nicht beendet sind und deren Teams beide noch dabei sind.
+ * Gibt das Ergebnis zurück (2:0 für `winner`).
+ */
+export function checkWalkover(d: TournamentData, matchId: string, winner: 'A' | 'B'): ScoredWalkover {
+  assertFormat(d);
+  const m = findMatch(d, matchId);
+  if (!m.stageId) throw new Error('Kampflos werten geht nur bei Turnieren mit Gruppen oder Endrunde.');
+  if (isKnockoutLike(d, m)) throw new Error('In der Endrunde kommt ein Team über „Rückzug“ kampflos weiter.');
+  if (!m.teamAId || !m.teamBId) throw new Error('Die Teams für dieses Spiel stehen noch nicht fest.');
+  if (m.status !== 'scheduled' && m.status !== 'live') throw new Error('Das Spiel ist schon vorbei. Korrigiere es zuerst.');
+  if (winner !== 'A' && winner !== 'B') throw new Error('Bitte angeben, welches Team kampflos gewinnt.');
+  const out = [m.teamAId, m.teamBId].find((id) => d.teams.find((t) => t.id === id)?.status !== 'active');
+  if (out) throw new Error(`${d.teams.find((t) => t.id === out)?.name ?? 'Ein Team'} ist abgemeldet. Dessen Spiele zählen ohnehin nicht.`);
+  return scoredWalkover(winner);
 }
 
 function drawDeciderOf(d: TournamentData, m: Match): string | undefined {

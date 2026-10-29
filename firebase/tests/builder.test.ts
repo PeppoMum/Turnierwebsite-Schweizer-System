@@ -130,6 +130,24 @@ describe('Turnier-Baukasten in Firestore', () => {
     );
   });
 
+  it('Team kommt zu spät: Gruppenspiel kampflos 2:0, öffentlich sichtbar, rückgängig machbar', async () => {
+    const g = owner.get(TID)!.matches.find((m) => m.groupIndex === 1)!;
+    await owner.recordWalkover(TID, g.id, 'A');
+    const done = await waitFor(() => owner.get(TID)?.matches.find((m) => m.id === g.id && m.status === 'completed'));
+    expect(done).toMatchObject({ goalsA: 2, goalsB: 0, decidedBy: 'walkover', walkoverWinner: 'A' });
+    const pub = await waitFor(() => guest.getPublic(TID)?.matches.find((m) => m.id === g.id && m.status === 'completed'));
+    expect(pub).toMatchObject({ decidedBy: 'walkover', walkoverWinner: 'A' });
+    expect(owner.get(TID)!.teams.find((x) => x.id === g.teamBId)!.status).toBe('active');
+
+    const history = await owner.loadHistory(TID);
+    expect(history[0]).toMatchObject({ action: 'match.walkover', targetId: g.id });
+    await owner.undoHistory(TID, history[0]!);
+    const back = await waitFor(() => owner.get(TID)?.matches.find((m) => m.id === g.id && m.status === 'scheduled'));
+    expect(back.goalsA).toBeUndefined();
+    expect(back.decidedBy).toBeUndefined();
+    expect(back.walkoverWinner).toBeUndefined();
+  });
+
   it('Turnierleitung füllt die Endrunde und tauscht; Helfer dürfen das nicht', async () => {
     await forceSet(env, `tournaments/${TID}/roleGrants/${HELPER.uid}`, {
       uid: HELPER.uid,
@@ -200,7 +218,7 @@ describe('Turnier-Baukasten in Firestore', () => {
     await owner.saveLot(TID, { stageId: 'vorrunde', groupIndex: 0, order: [t(1), t(0)] });
     const view = await waitFor(() => !!guest.getPublic(TID)?.lots?.length && guest.getPublic(TID));
     expect(view.lots![0]).toMatchObject({ stageId: 'vorrunde', groupIndex: 0, order: [t(1), t(0)] });
-    expect(owner.get(TID)!.lots).toHaveLength(1);
+    expect(await waitFor(() => owner.get(TID)?.lots?.length === 1 && owner.get(TID)!.lots)).toHaveLength(1);
 
     const rev = owner.get(TID)!.tournament.revision;
     await owner.setVisibility(TID, 'no_standings');

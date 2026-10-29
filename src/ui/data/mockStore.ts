@@ -717,7 +717,7 @@ export class MockTournamentStore implements TournamentService {
             m.revision += 1;
           }
         });
-        this.logLayout(tid, 'matches.undo', entry.targetId, plan.current, plan.target);
+        this.logLayout(tid, 'matches.undo', plan.current, plan.target);
         break;
       }
       case 'group-draw': {
@@ -748,8 +748,9 @@ export class MockTournamentStore implements TournamentService {
     return d;
   }
 
-  private logLayout(tid: string, action: string, targetId: string, before: LayoutSnap[], after: LayoutSnap[], extra?: object): void {
-    this.log(tid, { action, targetType: 'matches', targetId, before: { matches: before }, after: { matches: after, ...extra } });
+  /** Wie in Firestore: Änderungen an mehreren Spielen hängen am Turnier, die Spiele stehen in `matches`. */
+  private logLayout(tid: string, action: string, before: LayoutSnap[], after: LayoutSnap[], extra?: object): void {
+    this.log(tid, { action, targetType: 'tournament', targetId: tid, before: { matches: before }, after: { matches: after, ...extra } });
   }
 
   /** Änderung an Ort, Zeit oder Gegnern: auf einer Kopie prüfen und anwenden, dann übernehmen. */
@@ -771,7 +772,7 @@ export class MockTournamentStore implements TournamentService {
         m.updatedAt = now;
       }
     });
-    if (res) this.logLayout(tid, action, res.after[0]?.id ?? tid, res.before, res.after, extra);
+    if (res) this.logLayout(tid, action, res.before, res.after, extra);
   }
 
   async saveGroupDraw(tid: string, draw: Omit<GroupDraw, 'updatedAt'>): Promise<void> {

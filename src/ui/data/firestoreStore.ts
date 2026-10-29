@@ -150,6 +150,10 @@ async function toPreparedAsset(dataUrl: string): Promise<PreparedAsset> {
   return { dataUrl, mimeType: match[1] as AssetMimeType, width, height };
 }
 
+function notYet(): DataError {
+  return new DataError('invalid_state', 'Turniere mit Gruppen und Endrunde lassen sich noch nicht speichern. Das kommt in Kürze.');
+}
+
 export class FirestoreTournamentStore implements TournamentService {
   private listeners = new Set<() => void>();
   private priv = new Map<string, PrivateEntry>();
@@ -520,6 +524,7 @@ export class FirestoreTournamentStore implements TournamentService {
   }
 
   async createTournament(draft: WizardDraft, publish: boolean): Promise<string> {
+    if (draft.format) throw notYet();
     const actor = this.actor();
     const db = this.db;
     const requested = /^[A-Za-z0-9_-]{1,64}$/.test(draft.id) ? draft.id : undefined;
@@ -1032,7 +1037,52 @@ export class FirestoreTournamentStore implements TournamentService {
       case 'tournament-reopen':
         await setTournamentStatus(this.db, actor, tid, d.tournament.revision, 'running', undo);
         return;
+      case 'layout':
+      case 'group-draw':
+        throw notYet();
     }
+  }
+
+  // Turnier-Baukasten: kommt mit dem nächsten Schritt (Ablage in Firestore und Schutzregeln).
+  // Bis dahin arbeiten die Oberflächen gegen den mockStore.
+  async saveGroupDraw(): Promise<void> {
+    throw notYet();
+  }
+
+  async saveStagePlan(): Promise<string[]> {
+    throw notYet();
+  }
+
+  async finishKnockoutMatch(): Promise<void> {
+    throw notYet();
+  }
+
+  async swapMatches(): Promise<void> {
+    throw notYet();
+  }
+
+  async swapTeams(): Promise<void> {
+    throw notYet();
+  }
+
+  async moveMatch(): Promise<void> {
+    throw notYet();
+  }
+
+  async confirmSlotFills(): Promise<void> {
+    throw notYet();
+  }
+
+  async saveLot(): Promise<void> {
+    throw notYet();
+  }
+
+  async withdrawQualifiedTeam(): Promise<void> {
+    throw notYet();
+  }
+
+  async publishTournament(): Promise<void> {
+    throw notYet();
   }
 
   /** Alle Abos beenden (z. B. beim Abmelden oder in Tests). */

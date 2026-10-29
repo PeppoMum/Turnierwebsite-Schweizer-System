@@ -3,7 +3,23 @@
 // Schreibfehler (fehlende Rechte, inzwischen geänderte Daten) als Error mit deutscher, verständlicher Meldung werfen;
 // die Oberfläche zeigt sie an.
 import type { MatchStatus, NotPlayedReason, Visibility } from '../../domain';
-import type { HistoryEntry, PairingPreview, PublicTournamentView, TeamEdit, TournamentData, TournamentDetails, WizardDraft } from './types';
+import type {
+  GroupDraw,
+  HistoryEntry,
+  KnockoutResult,
+  LotDecision,
+  MatchMove,
+  MatchSide,
+  PairingPreview,
+  PlannedStageMatch,
+  PublicTournamentView,
+  SlotFill,
+  TeamEdit,
+  TournamentData,
+  TournamentDetails,
+  WithdrawalChoice,
+  WizardDraft,
+} from './types';
 
 export interface TournamentService {
   subscribe(listener: () => void): () => void;
@@ -46,4 +62,37 @@ export interface TournamentService {
    * dem aktuellen Stand und wirft eine verständliche Meldung, wenn es nicht mehr geht.
    */
   undoHistory(tid: string, entry: HistoryEntry): Promise<void>;
+
+  // Turnier-Baukasten (docs/turnier-baukasten.md). Alles nur bei Turnieren mit `format`, nur für die
+  // Turnierleitung; Ausnahme ist `finishKnockoutMatch`, das dürfen auch Helfer. Jede Änderung landet im Verlauf.
+  // Gruppen-Spiele laufen über recordScore/setMatchStatus wie bisher. `createTournament` legt mit
+  // `draft.format` keine Schweizer-System-Runde an; Zuschauer sehen erst nach `publishTournament` etwas.
+
+  /**
+   * Gruppeneinteilung eines Gruppenabschnitts speichern (Auslosung oder von Hand), nur solange in dem
+   * Abschnitt noch nicht gespielt wurde. Die offenen Spiele ändern sich dadurch nicht: danach den neu
+   * berechneten Spielplan mit `saveStagePlan` speichern.
+   */
+  saveGroupDraw(tid: string, draw: Omit<GroupDraw, 'updatedAt'>): Promise<void>;
+  /**
+   * Spielplan aller Abschnitte speichern. Ersetzt alle noch nicht angepfiffenen Baukasten-Spiele;
+   * angepfiffene und beendete bleiben, wie sie sind. Gibt die IDs der gespeicherten Spiele zurück.
+   */
+  saveStagePlan(tid: string, matches: PlannedStageMatch[]): Promise<string[]>;
+  /** Endrunden-Spiel mit Sieger beenden, auch nach Verlängerung oder Neunmeterschießen. */
+  finishKnockoutMatch(tid: string, matchId: string, result: KnockoutResult): Promise<void>;
+  /** Zwei noch nicht angepfiffene Spiele tauschen Uhrzeit und Feld. */
+  swapMatches(tid: string, matchIdA: string, matchIdB: string): Promise<void>;
+  /** Zwei Teams (oder Platzhalter) zwischen noch nicht angepfiffenen Spielen tauschen. */
+  swapTeams(tid: string, a: MatchSide, b: MatchSide): Promise<void>;
+  /** Feld und/oder Uhrzeit eines noch nicht angepfiffenen Spiels ändern. */
+  moveMatch(tid: string, matchId: string, move: MatchMove): Promise<void>;
+  /** Vorschlag zum Füllen der Endrunde bestätigen (aus src/domain/format/resolve.ts). */
+  confirmSlotFills(tid: string, fills: SlotFill[]): Promise<void>;
+  /** Gezogenes Los speichern; ein Los für dieselben Teams an derselben Stelle wird ersetzt. */
+  saveLot(tid: string, lot: Omit<LotDecision, 'id' | 'atISO'>): Promise<void>;
+  /** Qualifiziertes Team zieht vor seinem Endrunden-Spiel zurück: Gegner kampflos weiter oder Nachrücker. */
+  withdrawQualifiedTeam(tid: string, teamId: string, choice: WithdrawalChoice): Promise<void>;
+  /** Gruppen und Spielplan für Zuschauer freigeben. */
+  publishTournament(tid: string): Promise<void>;
 }

@@ -1,6 +1,7 @@
 // Brücke zwischen Oberfläche und Fachlogik in src/domain: Tabelle, Paarung und Zeitplan
 // kommen aus den getesteten Domain-Modulen, hier wird nur zusammengesteckt.
 import type { Match } from '../../domain';
+import type { StageMatchFields } from '../../domain/format';
 import { calculateStandings } from '../../domain/scoring';
 import { previewNextRound as domainPreviewNextRound } from '../../domain/pairing';
 import { estimateRoundTimes, type RoundTimeEstimate } from '../../domain/schedule';
@@ -87,6 +88,24 @@ export function previewNextRound(data: TournamentData, seed: string | number = D
   );
 }
 
+/** Baukasten-Felder eines Spiels für Zuschauer; ohne Tore auch keine Neunmeter-Treffer. */
+function stageFieldsOf(m: Match, showScores: boolean): Partial<StageMatchFields> {
+  if (!m.stageId) return {};
+  const out: Partial<StageMatchFields> = {
+    stageId: m.stageId,
+    groupIndex: m.groupIndex,
+    matchKey: m.matchKey,
+    slotA: m.slotA,
+    slotB: m.slotB,
+    penaltyOnly: m.penaltyOnly,
+    decidedBy: m.decidedBy,
+    walkoverWinner: m.walkoverWinner,
+    ...(showScores ? { penaltiesA: m.penaltiesA, penaltiesB: m.penaltiesB } : {}),
+  };
+  for (const k of Object.keys(out) as (keyof StageMatchFields)[]) if (out[k] === undefined) delete out[k];
+  return out;
+}
+
 /**
  * Öffentliche Projektion, wie sie später als eigenes Firestore-Dokument veröffentlicht wird.
  * Im Kinderfußballmodus werden Tore und Tabelle gar nicht erst übernommen.
@@ -120,8 +139,10 @@ export function toPublicView(data: TournamentData): PublicTournamentView {
     sponsors: data.sponsors.map((s) => ({ id: s.id, name: s.name, url: s.url, logo: s.assetId ? data.assets[s.assetId] : undefined })),
     rounds: publishedRounds.map((r) => ({ number: r.number, plannedStartISO: r.plannedStartISO, status: r.status })),
     matches: data.matches
-      .filter((m) => roundNumbers.has(m.roundNumber))
+      // Baukasten-Spiele gibt es erst nach dem Veröffentlichen, dann alle auf einmal.
+      .filter((m) => (m.stageId ? t.status !== 'draft' : roundNumbers.has(m.roundNumber)))
       .map((m) => ({
+        ...stageFieldsOf(m, showScores),
         id: m.id,
         roundNumber: m.roundNumber,
         teamAId: m.teamAId,
@@ -136,7 +157,14 @@ export function toPublicView(data: TournamentData): PublicTournamentView {
     byes: data.byes
       .map((b) => ({ roundNumber: roundIdToNumber.get(b.roundId) ?? 0, teamId: b.teamId }))
       .filter((b) => roundNumbers.has(b.roundNumber)),
-    ...(showTable ? { standings: computeStandings(data) } : {}),
+    ...(showTable && !t.format ? { standings: computeStandings(data) } : {}),
+    ...(t.format
+      ? {
+          format: t.format,
+          groupDraws: (data.groupDraws ?? []).map((g) => ({ stageId: g.stageId, groups: g.groups })),
+          ...(showTable ? { lots: data.lots ?? [] } : {}),
+        }
+      : {}),
     timing: {
       tournamentStartISO: t.schedule.tournamentStartISO,
       matchMinutes: t.schedule.matchMinutes,

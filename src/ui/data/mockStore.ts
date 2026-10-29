@@ -6,7 +6,40 @@ import { previewNextRound, toPublicView } from './logic';
 import type { TournamentService } from './service';
 import { assertDetails, checkedTeamName, detailsOf, movedStartISO, nextTeamId } from './details';
 import { undoCheck } from './undo';
-import type { HistoryEntry, PublicTournamentView, TeamEdit, TournamentData, TournamentDetails, WizardDraft } from './types';
+import {
+  NOT_FOUND,
+  applyGroupDraw,
+  applyKnockoutResult,
+  applyLayoutSnap,
+  applyStagePlan,
+  assertFormat,
+  assertPlayable,
+  checkFinishWithoutDecider,
+  checkGroupDraw,
+  checkKnockoutResult,
+  fillSlotsIn,
+  moveMatchIn,
+  swapMatchesIn,
+  swapSidesIn,
+  withdrawQualifiedIn,
+  type LayoutSnap,
+} from './stages';
+import type {
+  GroupDraw,
+  HistoryEntry,
+  KnockoutResult,
+  LotDecision,
+  MatchMove,
+  MatchSide,
+  PlannedStageMatch,
+  PublicTournamentView,
+  SlotFill,
+  TeamEdit,
+  TournamentData,
+  TournamentDetails,
+  WithdrawalChoice,
+  WizardDraft,
+} from './types';
 
 const STORAGE_KEY = 'turnier-demo-v1';
 const HISTORY_KEY = 'turnier-demo-verlauf-v1';
@@ -66,7 +99,14 @@ export class MockTournamentStore implements TournamentService {
     const snap = () => {
       const m = this.get(tid)?.matches.find((x) => x.id === matchId);
       return m
-        ? { status: m.status, goalsA: m.goalsA ?? null, goalsB: m.goalsB ?? null, notPlayedReason: m.notPlayedReason ?? null, revision: m.revision }
+        ? {
+            status: m.status,
+            goalsA: m.goalsA ?? null,
+            goalsB: m.goalsB ?? null,
+            notPlayedReason: m.notPlayedReason ?? null,
+            revision: m.revision,
+            ...(m.stageId ? { decidedBy: m.decidedBy ?? null, penaltiesA: m.penaltiesA ?? null, penaltiesB: m.penaltiesB ?? null } : {}),
+          }
         : null;
     };
     const before = snap();
@@ -152,10 +192,12 @@ export class MockTournamentStore implements TournamentService {
       assets[id] = url;
       return id;
     };
+    if (draft.format && draft.format.stages.length === 0) throw new Error('Das Turnier braucht mindestens einen Abschnitt.');
     const fields = draft.fields.map((f, i) => ({ id: `${tid}-f${i + 1}`, tournamentId: tid, name: f.name.trim(), order: i, active: true }));
+    const teamIdMap = new Map<string, string>();
     const teams: Team[] = draft.teams
       .filter((t) => t.name.trim())
-      .map((t, i) => ({
+      .map((t, i) => (teamIdMap.set(t.id, `${tid}-t${i + 1}`), {
         id: `${tid}-t${i + 1}`,
         tournamentId: tid,
         name: t.name.trim(),
@@ -196,6 +238,7 @@ export class MockTournamentStore implements TournamentService {
         fieldIds: fields.map((f) => f.id),
         currentRound: 0,
         revision: 1,
+        ...(draft.format ? { format: structuredClone(draft.format) } : {}),
         publishedAt: publish ? now : undefined,
         createdAt: now,
         updatedAt: now,
@@ -210,9 +253,17 @@ export class MockTournamentStore implements TournamentService {
       byes: [],
       assets,
     };
+    if (draft.format && draft.groupDraws) {
+      const remapped = draft.groupDraws.map((g) => ({
+        ...g,
+        groups: g.groups.map((ids) => ids.map((id) => teamIdMap.get(id) ?? id)),
+        ...(g.pots ? { pots: g.pots.map((ids) => ids.map((id) => teamIdMap.get(id) ?? id)) } : {}),
+      }));
+      data.groupDraws = remapped.map((g) => ({ ...checkGroupDraw(data, g), updatedAt: now }));
+    }
     this.data = [data, ...this.data];
     this.log(tid, { action: 'tournament.create', targetType: 'tournament', targetId: tid, after: { title: data.tournament.title } });
-    if (publish) {
+    if (publish && !draft.format) {
       // Erste Runde direkt auslosen und veröffentlichen.
       const preview = previewNextRound(data);
       this.emit();
@@ -250,6 +301,12 @@ export class MockTournamentStore implements TournamentService {
     copy.rounds = [];
     copy.matches = [];
     copy.byes = [];
+    copy.lots = undefined;
+    copy.groupDraws = copy.groupDraws?.map((g) => ({
+      ...g,
+      groups: g.groups.map((ids) => ids.map(remap)),
+      ...(g.pots ? { pots: g.pots.map((ids) => ids.map(remap)) } : {}),
+    }));
     this.data = [copy, ...this.data];
     this.emit();
     return tid;
@@ -284,6 +341,8 @@ export class MockTournamentStore implements TournamentService {
     if (!Number.isInteger(goalsA) || !Number.isInteger(goalsB) || goalsA < 0 || goalsB < 0) {
       throw new Error('Tore müssen ganze Zahlen ab 0 sein.');
     }
+    const src = this.get(tid);
+    if (src) assertPlayable(src, matchId);
     const final = this.get(tid)?.matches.find((m) => m.id === matchId)?.status === 'completed';
     this.logMatch(tid, matchId, final ? 'match.result.final' : 'match.result.live', () =>
       this.mutateMatch(tid, matchId, (m) => {
@@ -296,10 +355,18 @@ export class MockTournamentStore implements TournamentService {
 
   async setMatchStatus(tid: string, matchId: string, status: 'scheduled' | 'live' | 'completed'): Promise<void> {
     const action = status === 'completed' ? 'match.result.final' : status === 'live' ? 'match.live' : 'match.reset';
-    this.logMatch(tid, matchId, action, () => this.mutateMatch(tid, matchId, (m) => {
+    const src = this.get(tid);
+    if (src && status !== 'scheduled') assertPlayable(src, matchId);
+    this.logMatch(tid, matchId, action, () => this.mutateMatch(tid, matchId, (m, d) => {
       if (status === 'completed') {
         m.goalsA ??= 0;
         m.goalsB ??= 0;
+        const decided = checkFinishWithoutDecider(d, m.id);
+        if (decided) {
+          m.decidedBy = decided;
+          m.penaltiesA = undefined;
+          m.penaltiesB = undefined;
+        }
         m.completedAt = nowISO();
       }
       if (status === 'live') {
@@ -309,6 +376,11 @@ export class MockTournamentStore implements TournamentService {
       if (status === 'scheduled') {
         m.goalsA = undefined;
         m.goalsB = undefined;
+      }
+      if (status !== 'completed' && m.decidedBy) {
+        m.decidedBy = undefined;
+        m.penaltiesA = undefined;
+        m.penaltiesB = undefined;
       }
       m.status = status;
       m.notPlayedReason = undefined;
@@ -322,6 +394,9 @@ export class MockTournamentStore implements TournamentService {
         m.notPlayedReason = reason;
         m.goalsA = undefined;
         m.goalsB = undefined;
+        m.decidedBy = undefined;
+        m.penaltiesA = undefined;
+        m.penaltiesB = undefined;
       }),
     );
   }
@@ -332,6 +407,10 @@ export class MockTournamentStore implements TournamentService {
         m.status = m.goalsA === undefined ? 'scheduled' : 'live';
         m.notPlayedReason = undefined;
         m.completedAt = undefined;
+        if (m.decidedBy === 'walkover') {
+          m.decidedBy = undefined;
+          m.walkoverWinner = undefined;
+        }
       }),
     );
   }
@@ -566,6 +645,11 @@ export class MockTournamentStore implements TournamentService {
             m.goalsA = goals ? (target.goalsA ?? 0) : undefined;
             m.goalsB = goals ? (target.goalsB ?? 0) : undefined;
             m.notPlayedReason = target.status === 'not_played' ? (target.notPlayedReason ?? 'other') : undefined;
+            if (target.decided !== undefined) {
+              m.decidedBy = target.decided.decidedBy ?? undefined;
+              m.penaltiesA = target.decided.penaltiesA ?? undefined;
+              m.penaltiesB = target.decided.penaltiesB ?? undefined;
+            }
           }),
         );
         break;
@@ -622,6 +706,28 @@ export class MockTournamentStore implements TournamentService {
         this.log(tid, { action: 'round.reopen', targetType: 'round', targetId: plan.roundId, after: { roundNumber: n } });
         break;
       }
+      case 'layout': {
+        this.mutate(tid, (x) => {
+          for (const s of plan.target) {
+            const m = x.matches.find((y) => y.id === s.id);
+            if (!m) continue;
+            applyLayoutSnap(m, s);
+            if (plan.reopen && m.status === 'not_played' && m.decidedBy === 'walkover') {
+              m.status = 'scheduled';
+              m.notPlayedReason = undefined;
+              m.decidedBy = undefined;
+              m.walkoverWinner = undefined;
+            }
+            m.revision += 1;
+          }
+        });
+        this.logLayout(tid, 'matches.undo', plan.current, plan.target);
+        break;
+      }
+      case 'group-draw': {
+        await this.saveGroupDraw(tid, plan.draw);
+        break;
+      }
       case 'tournament-reopen': {
         this.mutate(tid, (x) => {
           x.tournament.status = 'running';
@@ -635,6 +741,123 @@ export class MockTournamentStore implements TournamentService {
     const head = this.history[tid]?.[0];
     if (head) head.after = { ...(head.after as object), undoOf: entry.id };
     this.persistHistory();
+  }
+
+  // ---- Turnier-Baukasten ----
+
+  private formatData(tid: string): TournamentData {
+    const d = this.get(tid);
+    if (!d) throw new Error(NOT_FOUND);
+    assertFormat(d);
+    return d;
+  }
+
+  /** Wie in Firestore: Änderungen an mehreren Spielen hängen am Turnier, die Spiele stehen in `matches`. */
+  private logLayout(tid: string, action: string, before: LayoutSnap[], after: LayoutSnap[], extra?: object): void {
+    this.log(tid, { action, targetType: 'tournament', targetId: tid, before: { matches: before }, after: { matches: after, ...extra } });
+  }
+
+  /** Änderung an Ort, Zeit oder Gegnern: auf einer Kopie prüfen und anwenden, dann übernehmen. */
+  private changeLayout(
+    tid: string,
+    action: string,
+    fn: (d: TournamentData) => { before: LayoutSnap[]; after: LayoutSnap[]; matchIds?: string[] },
+    extra?: object,
+  ): void {
+    this.formatData(tid);
+    let res: ReturnType<typeof fn> | undefined;
+    this.mutate(tid, (d) => {
+      res = fn(d);
+      const now = nowISO();
+      for (const s of res.after) {
+        const m = d.matches.find((x) => x.id === s.id);
+        if (!m) continue;
+        m.revision += 1;
+        m.updatedAt = now;
+      }
+    });
+    if (res) this.logLayout(tid, action, res.before, res.after, extra);
+  }
+
+  async saveGroupDraw(tid: string, draw: Omit<GroupDraw, 'updatedAt'>): Promise<void> {
+    const src = this.formatData(tid);
+    const clean = checkGroupDraw(src, draw);
+    let before: GroupDraw | null = null;
+    this.mutate(tid, (d) => {
+      before = applyGroupDraw(d, clean, nowISO());
+    });
+    const b = before as GroupDraw | null;
+    this.log(tid, {
+      action: 'groups.draw',
+      targetType: 'stage',
+      targetId: clean.stageId,
+      before: b ? { groups: b.groups, mode: b.mode, ...(b.pots ? { pots: b.pots } : {}) } : null,
+      after: { groups: clean.groups, mode: clean.mode },
+    });
+  }
+
+  async saveStagePlan(tid: string, matches: PlannedStageMatch[]): Promise<string[]> {
+    this.formatData(tid);
+    let ids: string[] = [];
+    this.mutate(tid, (d) => {
+      ids = applyStagePlan(d, matches, () => uid(`${tid}-m`), nowISO());
+    });
+    this.log(tid, { action: 'schedule.save', targetType: 'tournament', targetId: tid, after: { matchCount: ids.length } });
+    return ids;
+  }
+
+  async finishKnockoutMatch(tid: string, matchId: string, result: KnockoutResult): Promise<void> {
+    checkKnockoutResult(this.formatData(tid), matchId, result);
+    this.logMatch(tid, matchId, 'match.result.final', () => this.mutateMatch(tid, matchId, (m) => applyKnockoutResult(m, result, nowISO())));
+  }
+
+  async swapMatches(tid: string, matchIdA: string, matchIdB: string): Promise<void> {
+    this.changeLayout(tid, 'match.swap', (d) => swapMatchesIn(d, matchIdA, matchIdB));
+  }
+
+  async swapTeams(tid: string, a: MatchSide, b: MatchSide): Promise<void> {
+    this.changeLayout(tid, 'match.swap_teams', (d) => swapSidesIn(d, a, b));
+  }
+
+  async moveMatch(tid: string, matchId: string, move: MatchMove): Promise<void> {
+    this.changeLayout(tid, 'match.move', (d) => moveMatchIn(d, matchId, move));
+  }
+
+  async confirmSlotFills(tid: string, fills: SlotFill[]): Promise<void> {
+    this.changeLayout(tid, 'finals.fill', (d) => fillSlotsIn(d, fills));
+  }
+
+  async saveLot(tid: string, lot: Omit<LotDecision, 'id' | 'atISO'>): Promise<void> {
+    const src = this.formatData(tid);
+    if (lot.order.length < 2) throw new Error('Ein Los braucht mindestens zwei Teams.');
+    if (!src.tournament.format?.stages.some((s) => s.id === lot.stageId)) throw new Error('Unbekannter Abschnitt.');
+    const key = (l: Omit<LotDecision, 'id' | 'atISO'>) => `${l.stageId}|${l.groupIndex ?? ''}|${l.place ?? ''}|${[...l.order].sort().join(',')}`;
+    const saved: LotDecision = { ...lot, order: [...lot.order], id: uid('los'), atISO: nowISO() };
+    this.mutate(tid, (d) => {
+      d.lots = [...(d.lots ?? []).filter((l) => key(l) !== key(lot)), saved];
+    });
+    this.log(tid, { action: 'lot.draw', targetType: 'stage', targetId: lot.stageId, after: { order: saved.order, groupIndex: lot.groupIndex ?? null } });
+  }
+
+  async withdrawQualifiedTeam(tid: string, teamId: string, choice: WithdrawalChoice): Promise<void> {
+    const src = this.formatData(tid);
+    // Erst die Endrunden-Spiele umstellen, dann die übrigen offenen Spiele wie beim normalen Rückzug.
+    this.changeLayout(tid, 'team.withdraw_qualified', (d) => withdrawQualifiedIn(d, teamId, choice), {
+      teamId,
+      choice: choice.kind,
+      ...(choice.kind === 'replace' ? { byTeamId: choice.byTeamId } : {}),
+    });
+    if (src.teams.find((t) => t.id === teamId)?.status === 'active') await this.withdrawTeam(tid, teamId);
+  }
+
+  async publishTournament(tid: string): Promise<void> {
+    const src = this.formatData(tid);
+    if (src.tournament.status !== 'draft') return;
+    this.mutate(tid, (d) => {
+      d.tournament.status = 'published';
+      d.tournament.publishedAt = nowISO();
+    });
+    this.log(tid, { action: 'tournament.publish', targetType: 'tournament', targetId: tid, after: { status: 'published' } });
   }
 
   /** Nur für die Demo: Beispieldaten zurücksetzen. */

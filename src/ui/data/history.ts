@@ -4,7 +4,7 @@
 import type { TournamentStatus, Visibility } from '../../domain';
 import { tournamentStatusLabel, visibilityLabel } from '../format';
 import type { HistoryEntry, TournamentData } from './types';
-import { matchStateText, undoneIds } from './undo';
+import { matchLabelOf, matchStateText, undoneIds } from './undo';
 
 export interface HistoryLine {
   id: string;
@@ -27,16 +27,23 @@ const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : und
 function score(v: Rec): string | undefined {
   const a = num(v.goalsA);
   const b = num(v.goalsB);
-  return a !== undefined && b !== undefined ? `${a}:${b}` : undefined;
+  if (a === undefined || b === undefined) return undefined;
+  const pa = num(v.penaltiesA);
+  const pb = num(v.penaltiesB);
+  if (v.decidedBy === 'penalties' && pa !== undefined && pb !== undefined) return `${a}:${b}, ${pa}:${pb} n. N.`;
+  if (v.decidedBy === 'extra_time') return `${a}:${b} n. V.`;
+  return `${a}:${b}`;
 }
 
 export function describeHistory(entries: HistoryEntry[], data: TournamentData, myUid?: string | null): HistoryLine[] {
   const t = data.tournament;
   const teamName = (id: unknown) => data.teams.find((x) => x.id === id)?.name ?? 'ein Team';
-  const matchLabel = (id: string) => {
-    const m = data.matches.find((x) => x.id === id);
-    return m ? `${teamName(m.teamAId)} – ${teamName(m.teamBId)} (Runde ${m.roundNumber})` : 'Ein Spiel';
-  };
+  const matchLabel = (id: string) => matchLabelOf(data, id);
+  const matchCount = (v: Rec) => (Array.isArray(v.matches) ? v.matches.length : 0);
+  const firstMatches = (v: Rec) =>
+    (Array.isArray(v.matches) ? (v.matches as Rec[]) : [])
+      .map((m) => matchLabel(String(m.id)))
+      .join(' und ');
   const roundNumber = (e: HistoryEntry) => data.rounds.find((r) => r.id === e.targetId)?.number ?? num(rec(e.after).roundNumber);
   const who = (uid: string) => (myUid && uid === myUid ? 'Du' : uid === t.ownerUid ? 'Turnierleitung' : 'Helfer');
 
@@ -101,6 +108,32 @@ export function describeHistory(entries: HistoryEntry[], data: TournamentData, m
         return before.name && before.name !== after.name
           ? { text: `Mannschaft umbenannt: „${str(before.name)}“ → „${str(after.name) ?? ''}“` }
           : { text: `Logo von ${str(after.name) ?? 'einer Mannschaft'} geändert` };
+      case 'tournament.publish':
+        return { text: 'Gruppen und Spielplan für Zuschauer veröffentlicht' };
+      case 'groups.draw': {
+        const stage = data.tournament.format?.stages.find((x) => x.id === e.targetId)?.name ?? 'Gruppen';
+        return { text: `${stage}: Gruppen ${before.groups ? 'neu ' : ''}eingeteilt` };
+      }
+      case 'schedule.save':
+        return { text: `Spielplan gespeichert (${num(after.matchCount) ?? 0} Spiele)` };
+      case 'match.swap':
+        return { text: `Spiele getauscht: ${firstMatches(after)}` };
+      case 'match.swap_teams':
+        return { text: `Gegner getauscht: ${firstMatches(after)}` };
+      case 'match.move':
+        return { text: `Uhrzeit oder Feld geändert: ${firstMatches(after)}` };
+      case 'finals.fill':
+        return { text: `Endrunde gefüllt (${matchCount(after)} ${matchCount(after) === 1 ? 'Spiel' : 'Spiele'})` };
+      case 'matches.undo':
+        return { text: `Spiele zurückgesetzt: ${firstMatches(after)}` };
+      case 'lot.draw': {
+        const order = Array.isArray(after.order) ? (after.order as unknown[]).map(teamName) : [];
+        return { text: `Los gezogen: ${order.join(' vor ')}` };
+      }
+      case 'team.withdraw_qualified':
+        return after.choice === 'replace'
+          ? { text: `${teamName(after.teamId)} zieht zurück, ${teamName(after.byTeamId)} rückt nach` }
+          : { text: `${teamName(after.teamId)} zieht zurück, Gegner kampflos weiter` };
       case 'invitation.create':
         return { text: 'Helfer-Einladung erstellt' };
       case 'invitation.revoke':

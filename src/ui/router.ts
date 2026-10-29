@@ -12,10 +12,10 @@ export type Route =
   | { name: 'notFound' };
 
 export type AdminTab = 'live' | 'spielplan' | 'tabelle' | 'teams' | 'einstellungen' | 'verlauf';
-export type PublicTab = 'aktuell' | 'spielplan' | 'team' | 'tabelle';
+export type PublicTab = 'aktuell' | 'spielplan' | 'team' | 'tabelle' | 'gruppen' | 'endrunde';
 
 const ADMIN_TABS: AdminTab[] = ['live', 'spielplan', 'tabelle', 'teams', 'einstellungen', 'verlauf'];
-const PUBLIC_TABS: PublicTab[] = ['aktuell', 'spielplan', 'team', 'tabelle'];
+const PUBLIC_TABS: PublicTab[] = ['aktuell', 'spielplan', 'team', 'tabelle', 'gruppen', 'endrunde'];
 
 export function parseHash(hash: string): Route {
   const path = hash.replace(/^#/, '').replace(/^\/+|\/+$/g, '');

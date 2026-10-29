@@ -10,6 +10,10 @@ import { ScheduleTab } from './ScheduleTab';
 import { TeamsTab } from './TeamsTab';
 import { SettingsTab } from './SettingsTab';
 import { HistoryTab } from './HistoryTab';
+import { StageLive } from './stages/StageLive';
+import { StageSchedule } from './stages/StageSchedule';
+import { StageTables } from './stages/StageTables';
+import { AutoFill } from './stages/AutoFill';
 
 export interface AdminCtx {
   data: TournamentData;
@@ -47,6 +51,8 @@ const TAB_TITLE: Record<AdminTab, string> = {
 export function AdminTournament({ data, tab }: { data: TournamentData; tab: AdminTab }) {
   const ctx = useAdminCtx(data);
   const t = data.tournament;
+  // Turniere mit Gruppen und Endrunde haben eigene Ansichten für Live, Spielplan und Tabelle.
+  const stages = Boolean(t.format);
   return (
     <div className="page">
       <div className="page-head">
@@ -54,13 +60,14 @@ export function AdminTournament({ data, tab }: { data: TournamentData; tab: Admi
           <span className="small-text">
             {t.title} · {formatDateShort(t.localDate)}
           </span>
-          <h1 className="page-title">{TAB_TITLE[tab]}</h1>
+          <h1 className="page-title">{stages && tab === 'tabelle' ? 'Tabellen und Endrunde' : TAB_TITLE[tab]}</h1>
         </div>
         <TournamentStatusPill status={t.status} />
       </div>
-      {tab === 'live' && <LiveTab ctx={ctx} />}
-      {tab === 'spielplan' && <ScheduleTab ctx={ctx} />}
-      {tab === 'tabelle' && <StandingsSection ctx={ctx} />}
+      {stages && t.status !== 'draft' && <AutoFill ctx={ctx} />}
+      {tab === 'live' && (stages ? <StageLive ctx={ctx} /> : <LiveTab ctx={ctx} />)}
+      {tab === 'spielplan' && (stages ? <StageSchedule ctx={ctx} /> : <ScheduleTab ctx={ctx} />)}
+      {tab === 'tabelle' && (stages ? <StageTables ctx={ctx} /> : <StandingsSection ctx={ctx} />)}
       {tab === 'teams' && <TeamsTab ctx={ctx} />}
       {tab === 'einstellungen' && <SettingsTab ctx={ctx} />}
       {tab === 'verlauf' && <HistoryTab ctx={ctx} />}

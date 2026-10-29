@@ -179,12 +179,25 @@ function PublicRoute({ id, tab }: { id: string; tab: PublicTab }) {
   const view = usePublicTournament(id);
   const loading = useLoading(id);
   const showTable = view?.tournament.visibility === 'full';
-  const nav: Array<{ tab: PublicTab; label: string; icon: NavItem['icon'] }> = [
-    { tab: 'aktuell', label: 'Aktuell', icon: 'live' },
-    { tab: 'spielplan', label: 'Spielplan', icon: 'calendar' },
-    { tab: 'team', label: 'Mein Team', icon: 'star' },
-    ...(showTable ? [{ tab: 'tabelle' as const, label: 'Tabelle', icon: 'table' as const }] : []),
-  ];
+  // Baukasten-Turniere: Gruppen und Endrunde statt der Schweizer-System-Tabelle.
+  const stages = view?.format?.stages ?? [];
+  const hasGroups = stages.some((s) => s.kind === 'groups');
+  const hasFinals = stages.some((s) => s.kind === 'knockout' || s.kind === 'placement' || s.kind === 'final_group');
+  const nav: Array<{ tab: PublicTab; label: string; icon: NavItem['icon'] }> = view?.format
+    ? [
+        { tab: 'aktuell', label: 'Aktuell', icon: 'live' },
+        { tab: 'spielplan', label: 'Spielplan', icon: 'calendar' },
+        ...(hasGroups ? [{ tab: 'gruppen' as const, label: 'Gruppen', icon: 'table' as const }] : []),
+        ...(hasFinals ? [{ tab: 'endrunde' as const, label: 'Endrunde', icon: 'trophy' as const }] : []),
+        { tab: 'team', label: 'Mein Team', icon: 'star' },
+      ]
+    : [
+        { tab: 'aktuell', label: 'Aktuell', icon: 'live' },
+        { tab: 'spielplan', label: 'Spielplan', icon: 'calendar' },
+        { tab: 'team', label: 'Mein Team', icon: 'star' },
+        ...(showTable ? [{ tab: 'tabelle' as const, label: 'Tabelle', icon: 'table' as const }] : []),
+      ];
+  const shownTab = nav.some((n) => n.tab === tab) ? tab : 'aktuell';
   const more: MoreItem[] = view
     ? [
         {
@@ -207,7 +220,7 @@ function PublicRoute({ id, tab }: { id: string; tab: PublicTab }) {
       more={more}
     >
       {view ? (
-        <PublicTournament view={view} tab={tab === 'tabelle' && !showTable ? 'aktuell' : tab} />
+        <PublicTournament view={view} tab={shownTab} />
       ) : loading ? (
         <Loading />
       ) : (

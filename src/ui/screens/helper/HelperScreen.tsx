@@ -6,6 +6,7 @@ import { formatDateShort } from '../../format';
 import { EmptyState, Notice, Seg, TeamName, TournamentStatusPill } from '../../components/ui';
 import { useAdminCtx } from '../admin/AdminTournament';
 import { WaveBlock, groupByWave } from '../admin/LiveTab';
+import { StageHelper } from './StageHelper';
 
 type JoinState = { state: 'joining' } | { state: 'ready' } | { state: 'error'; message: string };
 
@@ -50,7 +51,7 @@ function HelperData({ tid, linkId }: { tid: string; linkId: string }) {
   }
   // Ohne Online-Speicher (Beispieldaten) prüft niemand sonst den Link.
   if (data.tournament.openHelperLinkId !== linkId) return <Invalid />;
-  return <HelperLive data={data} />;
+  return data.tournament.format ? <StageHelper data={data} /> : <HelperLive data={data} />;
 }
 
 function Invalid() {

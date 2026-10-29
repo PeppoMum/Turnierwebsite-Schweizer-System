@@ -7,12 +7,14 @@ import type {
   MatchDoc,
   PublicMatchDoc,
   PublicResultDoc,
+  PublicStageDoc,
   PublicRoundDoc,
   PublicStandingRow,
   PublicStandingsDoc,
   PublicTournamentDoc,
   RoundDoc,
   SponsorDoc,
+  StageDoc,
   TeamDoc,
   TournamentDoc,
 } from './model';
@@ -95,6 +97,7 @@ export function toPublicTournament(
       turnoverMinutes: t.schedule.turnoverMinutes,
       roundBreakMinutes: t.schedule.roundBreakMinutes,
     },
+    ...(t.format ? { format: t.format } : {}),
     sourceRevision: t.revision,
   };
 }
@@ -131,6 +134,18 @@ export function toPublicMatch(matchId: string, m: MatchDoc): WithoutStamp<Public
     startISO: m.startISO ?? null,
     durationMinutes: m.durationMinutes,
     status: m.status,
+    ...(m.stageId
+      ? {
+          stageId: m.stageId,
+          groupIndex: m.groupIndex ?? null,
+          matchKey: m.matchKey ?? null,
+          slotA: m.slotA ?? null,
+          slotB: m.slotB ?? null,
+          penaltyOnly: m.penaltyOnly ?? null,
+          decidedBy: m.decidedBy ?? null,
+          walkoverWinner: m.walkoverWinner ?? null,
+        }
+      : {}),
     sourceRevision: m.revision,
   };
 }
@@ -143,7 +158,17 @@ export function toPublicResult(matchId: string, m: MatchDoc): WithoutStamp<Publi
     status: m.status,
     goalsA: m.goalsA ?? null,
     goalsB: m.goalsB ?? null,
+    ...(m.penaltiesA != null || m.penaltiesB != null ? { penaltiesA: m.penaltiesA ?? null, penaltiesB: m.penaltiesB ?? null } : {}),
     sourceRevision: m.revision,
+  };
+}
+
+/** Öffentliche Gruppeneinteilung eines Abschnitts; Lose nur, wenn die Tabelle öffentlich ist. */
+export function toPublicStage(s: Omit<StageDoc, 'updatedAt'>, visibility: Visibility): WithoutStamp<PublicStageDoc> {
+  return {
+    stageId: s.stageId,
+    groups: (s.groups ?? []).map((g) => ({ teamIds: [...g.teamIds] })),
+    ...(standingsArePublic(visibility) && s.lots ? { lots: s.lots.map((l) => ({ ...l, order: [...l.order] })) } : {}),
   };
 }
 

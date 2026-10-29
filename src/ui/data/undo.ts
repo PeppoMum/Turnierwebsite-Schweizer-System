@@ -228,12 +228,18 @@ function checkLayout(e: HistoryEntry, data: TournamentData): UndoCheck | null {
   return { ok: true, plan: { kind: 'layout', target, current, reopen }, explain: what };
 }
 
+/** Gruppen aus dem Verlauf: dort als `{ teamIds }` gespeichert, weil Firestore keine Listen in Listen kennt. */
+export function teamIdGroups(v: unknown): string[][] | null {
+  if (!Array.isArray(v)) return null;
+  return v.map((g) => (Array.isArray(g) ? g : Array.isArray(rec(g).teamIds) ? (rec(g).teamIds as unknown[]) : []).filter((x): x is string => typeof x === 'string'));
+}
+
 function checkGroupDraw(e: HistoryEntry, data: TournamentData): UndoCheck | null {
   const before = rec(e.before);
-  const after = rec(e.after);
-  if (!Array.isArray(before.groups)) return null;
+  const groups = teamIdGroups(before.groups);
+  if (!groups) return null;
   const now = data.groupDraws?.find((g) => g.stageId === e.targetId);
-  if (!now || JSON.stringify(now.groups) !== JSON.stringify(after.groups)) return { ok: false, reason: CHANGED_SINCE };
+  if (!now || JSON.stringify(now.groups) !== JSON.stringify(teamIdGroups(rec(e.after).groups))) return { ok: false, reason: CHANGED_SINCE };
   if (data.matches.some((m) => m.stageId === e.targetId && !isOpen(m))) {
     return { ok: false, reason: 'In diesem Abschnitt wurde schon gespielt. Die Gruppen bleiben, wie sie sind.' };
   }
@@ -243,9 +249,9 @@ function checkGroupDraw(e: HistoryEntry, data: TournamentData): UndoCheck | null
       kind: 'group-draw',
       draw: {
         stageId: e.targetId,
-        groups: before.groups as string[][],
+        groups,
         mode: (str(before.mode) as GroupDraw['mode'] | undefined) ?? 'manual',
-        ...(Array.isArray(before.pots) ? { pots: before.pots as string[][] } : {}),
+        ...(Array.isArray(before.pots) ? { pots: teamIdGroups(before.pots)! } : {}),
       },
     },
     explain: 'Die Gruppen sind danach wieder so eingeteilt wie vorher.',

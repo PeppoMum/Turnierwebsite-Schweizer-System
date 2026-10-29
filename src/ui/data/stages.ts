@@ -104,6 +104,26 @@ export function checkFinishWithoutDecider(d: TournamentData, matchId: string): M
   return m.decidedBy === 'extra_time' ? 'extra_time' : 'regular';
 }
 
+/**
+ * Ergebnis eines schon beendeten Endrunden-Spiels korrigieren: Sieger muss bleiben. Liefert die neue
+ * Entscheidung, `undefined` = unverändert lassen (kein Endrunden-Spiel oder Gleichstand nach Neunmetern).
+ */
+export function scoreEditDecision(
+  d: TournamentData,
+  matchId: string,
+  goalsA: number,
+  goalsB: number,
+): { decidedBy: 'regular' | 'extra_time' } | undefined {
+  const m = d.matches.find((x) => x.id === matchId);
+  if (!m || m.status !== 'completed' || !isKnockoutLike(d, m)) return undefined;
+  if (goalsA === goalsB) {
+    if (m.decidedBy === 'penalties') return undefined;
+    throw new Error('In der Endrunde braucht es einen Sieger. Bitte Neunmeterschießen eintragen.');
+  }
+  if (m.penaltyOnly) throw new Error('Dieses Spiel wird nur per Neunmeterschießen entschieden.');
+  return { decidedBy: m.decidedBy === 'extra_time' ? 'extra_time' : 'regular' };
+}
+
 export function checkKnockoutResult(d: TournamentData, matchId: string, r: KnockoutResult): void {
   const m = findMatch(d, matchId);
   if (!isKnockoutLike(d, m)) throw new Error('Verlängerung und Neunmeter gibt es nur in der Endrunde.');

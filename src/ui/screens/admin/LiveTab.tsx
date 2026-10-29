@@ -252,7 +252,7 @@ function RoundAction({
   );
 }
 
-function ShiftDialog({ ctx, onClose }: { ctx: AdminCtx; onClose: () => void }) {
+export function ShiftDialog({ ctx, onClose }: { ctx: AdminCtx; onClose: () => void }) {
   const service = useService();
   const t = ctx.data.tournament;
   const [delta, setDelta] = useState(10);
@@ -285,7 +285,7 @@ function ShiftDialog({ ctx, onClose }: { ctx: AdminCtx; onClose: () => void }) {
             {sample.map((m) => (
               <tr key={m.id}>
                 <td className="l" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {ctx.teamName(m.teamAId)} – {ctx.teamName(m.teamBId)}
+                  {m.teamAId ? ctx.teamName(m.teamAId) : 'offen'} – {m.teamBId ? ctx.teamName(m.teamBId) : 'offen'}
                 </td>
                 <td>{formatTime(m.startISO, t.timeZone)}</td>
                 <td style={{ fontWeight: 700 }}>{formatTime(shifted(m.startISO!), t.timeZone)}</td>

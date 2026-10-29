@@ -7,6 +7,7 @@ import { Dialog, Notice, TeamName } from '../../components/ui';
 import { Icon } from '../../components/Icon';
 import type { AdminCtx } from './AdminTournament';
 import { TeamDialog } from './EditDetails';
+import { QualifiedWithdrawDialog, qualifiedOptions } from './stages/QualifiedWithdraw';
 
 const STATUS_LABEL: Record<Team['status'], { text: string; tone: string }> = {
   active: { text: 'Aktiv', tone: 'g' },
@@ -27,7 +28,7 @@ export function TeamsTab({ ctx }: { ctx: AdminCtx }) {
     <>
       <div className="row">
         <span className="pill a">{active} aktive Teams</span>
-        {active % 2 === 1 && <span className="pill y">Ungerade Zahl: pro Runde ein Freilos</span>}
+        {active % 2 === 1 && !data.tournament.format && <span className="pill y">Ungerade Zahl: pro Runde ein Freilos</span>}
         {data.tournament.status !== 'finished' && data.tournament.status !== 'archived' && (
           <button type="button" className="btn" style={{ marginLeft: 'auto' }} onClick={() => setEditing('new')}>
             <Icon name="plus" />
@@ -103,6 +104,9 @@ export function TeamsTab({ ctx }: { ctx: AdminCtx }) {
 function WithdrawDialog({ ctx, team, onClose, onDone }: { ctx: AdminCtx; team: Team; onClose: () => void; onDone: () => void }) {
   const service = useService();
   const { data } = ctx;
+  // Baukasten: Steht das Team schon in der Endrunde, wählt die Turnierleitung kampflos oder Nachrücker.
+  const finals = data.tournament.format ? qualifiedOptions(data, team.id) : [];
+  if (finals.length > 0) return <QualifiedWithdrawDialog ctx={ctx} team={team} options={finals} onClose={onClose} onDone={onDone} />;
   const own = data.matches.filter((m) => m.teamAId === team.id || m.teamBId === team.id);
   const started = own.some((m) => m.status !== 'scheduled');
   const open = own.filter((m) => m.status === 'scheduled');

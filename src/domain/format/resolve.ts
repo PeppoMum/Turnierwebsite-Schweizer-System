@@ -4,15 +4,17 @@
 //   („beste Dritte“), sobald alle Gruppen fertig sind und kein Los mehr fehlt. Vorher gibt es eine
 //   Vorschau „nach jetzigem Stand“ (`provisional: true`).
 // - Sieger/Verlierer stehen fest, sobald das Spiel entschieden ist.
-// - Eingetragen wird nie automatisch: `changes` ist ein Vorschlag, den die Turnierleitung bestätigt.
-//   Nur Spiele, die noch nicht angepfiffen sind, ändern sich. Angepfiffene oder beendete Spiele bleiben
-//   („gespielt ist gespielt“), solche Abweichungen stehen in `locked`.
+// - Ein Platz, über den in seiner Gruppe noch ein Los entscheiden muss, bleibt vorläufig.
+// - `changes` sind neue Teams (Turnierleitung trägt sie automatisch ein) oder, mit `fromTeamId`, Korrekturen
+//   (Turnierleitung bestätigt). Nur Spiele, die noch nicht angepfiffen sind, ändern sich. Angepfiffene oder
+//   beendete Spiele bleiben („gespielt ist gespielt“), solche Abweichungen stehen in `locked`.
 // - Von Hand getauschte Teams tragen den Platzhalter `{ kind: 'team' }` und bleiben, wie sie sind.
 
 import { buildBracket } from '../knockout/bracket';
 import { entrySlots, rankBestOfPlace, stageTableSizes } from '../knockout/entry';
 import { type Side, decideKnockoutMatch, walkoverFields } from '../knockout/result';
 import type { MatchStatus, TeamStatus } from '../types';
+import type { GroupStageStandings } from '../groups';
 import type { FinalPlacement, GroupTableRow, KnockoutStage, SlotRef, StageConfig, StageMatchFields, StageStandings, TournamentFormat } from './types';
 
 /** Ein Spiel eines Baukasten-Turniers, so wie es gespeichert ist. Leere Team-ID = noch nicht eingetragen. */
@@ -159,8 +161,14 @@ class Resolver {
     const ranking = this.bestOf(slot.stageId, slot.place);
     const row = ranking?.rows[slot.rank - 1];
     if (!ranking || !row) return NONE;
-    const tied = ranking.needsLot.some((ids) => ids.includes(row.row.teamId));
+    const tied = ranking.needsLot.some((ids) => ids.includes(row.row.teamId)) || this.inOpenLot(slot.stageId, row.row.teamId);
     return { teamId: row.row.teamId, provisional: tied || !this.complete(slot.stageId) };
+  }
+
+  /** Ob über den Platz des Teams in seiner Gruppe noch ein Los entscheiden muss (offene Lose aus dem Gruppen-Teil). */
+  private inOpenLot(stageId: string, teamId: string, group?: number): boolean {
+    const tables = (this.input.standings[stageId] as Partial<GroupStageStandings> | undefined)?.tables ?? [];
+    return tables.some((t, i) => (group === undefined || i === group) && t.openLots.some((ids) => ids.includes(teamId)));
   }
 
   private tableRow(stageId: string, group: number, place: number): GroupTableRow | undefined {
@@ -176,7 +184,7 @@ class Resolver {
       case 'table_place': {
         const group = ref.kind === 'group_place' ? ref.group : 0;
         const row = this.tableRow(ref.stageId, group, ref.place);
-        return row ? { teamId: row.teamId, provisional: !this.complete(ref.stageId, group) } : NONE;
+        return row ? { teamId: row.teamId, provisional: !this.complete(ref.stageId, group) || this.inOpenLot(ref.stageId, row.teamId, group) } : NONE;
       }
       case 'best_of_place':
         return this.bestOfSlot(ref);

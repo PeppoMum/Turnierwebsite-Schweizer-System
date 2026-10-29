@@ -125,8 +125,8 @@ export function StepAppearance({ draft, update, errors }: StepProps) {
   );
 }
 
-/* 2 Teilnehmer */
-export function StepParticipants({ draft, update, errors }: StepProps) {
+/* Mannschaften */
+export function StepParticipants({ draft, update, errors, swiss = true }: StepProps & { swiss?: boolean }) {
   const [importText, setImportText] = useState('');
   const [showImport, setShowImport] = useState(false);
   const active = draft.teams.filter((t) => t.active && t.name.trim()).length;
@@ -136,7 +136,7 @@ export function StepParticipants({ draft, update, errors }: StepProps) {
     <>
       <div className="row">
         <span className="pill a">{active} aktive Teams</span>
-        {active % 2 === 1 && <span className="pill y">Ungerade Zahl: pro Runde ein Freilos</span>}
+        {swiss && active % 2 === 1 && <span className="pill y">Ungerade Zahl: pro Runde ein Freilos</span>}
         {active > 40 && <span className="pill o">Mehr als 40 Teams: Planung kann lange dauern</span>}
       </div>
       {errors.teams && <span className="field-error">{errors.teams}</span>}
@@ -266,23 +266,10 @@ export function StepMode({ draft, update, errors }: StepProps) {
   );
 }
 
-/* 4 Spielbetrieb */
-export function StepOperation({ draft, update, errors }: StepProps) {
-  const active = draft.teams.filter((t) => t.active && t.name.trim()).length;
-  const matches = Math.floor(active / 2);
-  const waves = wavesPerRound(active, draft.fields.length);
-  const perRound = roundMinutes(active, draft.fields.length, draft.matchMinutes || 0, draft.turnoverMinutes || 0);
-  const total = draft.roundsTotal * perRound + Math.max(0, draft.roundsTotal - 1) * (draft.roundBreakMinutes || 0);
-  const [h, m] = draft.startTime.split(':').map(Number);
-  const endMin = (h ?? 0) * 60 + (m ?? 0) + total;
-  const end = `${String(Math.floor(endMin / 60) % 24).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
+/* Spielfelder, gemeinsam für Schweizer System und Baukasten */
+export function FieldsEditor({ draft, update, errors }: StepProps) {
   const setField = (i: number, name: string) => update({ fields: draft.fields.map((f, j) => (j === i ? { ...f, name } : f)) });
-  const uneven = matches % Math.max(1, draft.fields.length) !== 0;
-  // Pause bei gleicher Welle in zwei aufeinanderfolgenden Runden = Durchschnitt über alle Teams.
-  const averageRest = perRound + Math.max(draft.turnoverMinutes || 0, draft.roundBreakMinutes || 0) - (draft.matchMinutes || 0);
-
   return (
-    <>
       <div className="section">
         <div className="section-head">
           <h3 className="card-title">Spielfelder</h3>
@@ -304,6 +291,26 @@ export function StepOperation({ draft, update, errors }: StepProps) {
           ))}
         </div>
       </div>
+  );
+}
+
+/* Felder und Zeiten (Schweizer System) */
+export function StepOperation({ draft, update, errors }: StepProps) {
+  const active = draft.teams.filter((t) => t.active && t.name.trim()).length;
+  const matches = Math.floor(active / 2);
+  const waves = wavesPerRound(active, draft.fields.length);
+  const perRound = roundMinutes(active, draft.fields.length, draft.matchMinutes || 0, draft.turnoverMinutes || 0);
+  const total = draft.roundsTotal * perRound + Math.max(0, draft.roundsTotal - 1) * (draft.roundBreakMinutes || 0);
+  const [h, m] = draft.startTime.split(':').map(Number);
+  const endMin = (h ?? 0) * 60 + (m ?? 0) + total;
+  const end = `${String(Math.floor(endMin / 60) % 24).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
+  const uneven = matches % Math.max(1, draft.fields.length) !== 0;
+  // Pause bei gleicher Welle in zwei aufeinanderfolgenden Runden = Durchschnitt über alle Teams.
+  const averageRest = perRound + Math.max(draft.turnoverMinutes || 0, draft.roundBreakMinutes || 0) - (draft.matchMinutes || 0);
+
+  return (
+    <>
+      <FieldsEditor draft={draft} update={update} errors={errors} />
       <div className="form-grid">
         <Field label="Turnierstart" error={errors.startTime}>
           {(id, d) => <input id={id} className="input" type="time" value={draft.startTime} aria-describedby={d} onChange={(e) => update({ startTime: e.target.value })} />}

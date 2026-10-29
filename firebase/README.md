@@ -18,11 +18,13 @@ Betrieb ausschließlich im **Spark-Tarif** (kostenlos): kein Cloud Storage, kein
 | `…/roleGrants/{uid}` | Rolle je uid + Turnier | Owner, die Person selbst | Owner; Einlösung einer Einladung; Helferlink ohne Anmeldung |
 | `…/invitations/{id}` | Helfer-Einladungen | Owner (Liste), angemeldete Person mit Link (einzeln) | Owner; Einlösung |
 | `…/assets/{id}` | kleine Bilder (Data-URL) | Mitglieder | Owner |
+| `…/stages/{stageId}` | Baukasten: Gruppeneinteilung, Lostöpfe, gezogene Lose | Mitglieder | Owner |
 | `publicTournaments/{tid}` | öffentliche Stammdaten, Teams alphabetisch, Felder, Sponsoren | alle, wenn `isPublic` | Owner |
 | `…/publicRounds`, `/publicMatches` | freigegebene Runden und Paarungen, **ohne Tore** | alle, wenn `isPublic` | Owner, Freigabeberechtigte; Helfer spiegeln nur den Status |
 | `…/publicResults/{matchId}` | Tore | alle, wenn `isPublic` **und** Modus `full`/`no_standings` | Owner; Helfer exakt gespiegelt |
 | `…/publicStandings/current` | Tabelle | alle, wenn `isPublic` **und** Modus `full` | Mitglieder, nur im Modus `full` |
 | `…/publicAssets/{id}` | öffentliche Bilder | alle, wenn `isPublic` | Owner |
+| `…/publicStages/{stageId}` | Baukasten: Gruppeneinteilung; Lose nur im Modus `full` | alle, wenn `isPublic` | Owner |
 | `users/{uid}/tournamentRefs/{tid}` | Turniere eines Kontos (Dashboard) | die Person selbst | die Person selbst, nur mit gültiger Rolle |
 
 ## Rollen (Spezifikation §3)
@@ -83,6 +85,35 @@ laufen über die bestehenden Owner-Rechte (Spiel `match.undo`, `team.restore` mi
   ändert sich, bereits ausgeloste Paarungen nicht (das Fenster weist darauf hin).
 - Rückzüge speichern die ausgefallenen Spiele in `after.matchIds`, damit die Rücknahme genau diese wieder
   plant (ältere Einträge: Schätzung über `notPlayedReason`).
+
+## Turnier-Baukasten (Gruppen, Endrunden)
+
+Fachliche Regeln: `docs/turnier-baukasten.md`. Turniere ohne `format` sind Schweizer System wie bisher;
+für sie ändert sich nichts, und sie laufen auch mit den älteren Schutzregeln weiter.
+
+- **Ablauf** steht als `format` am Turnier und in der öffentlichen Projektion.
+- **Spiele** tragen die Felder aus `StageMatchFields` (`stageId`, `groupIndex`, `matchKey`, `slotA/B`,
+  `penaltyOnly`, `decidedBy`, `penaltiesA/B`, `walkoverWinner`) und `manual`. Platzhalter-Spiele haben
+  `teamAId == teamBId == ''`, bis die Endrunde gefüllt ist. `roundId` ist `<tid>-<stageId>`,
+  `roundNumber` ist `phase + 1`; es gibt dafür keine Runden-Dokumente.
+- **Gruppen und Lose** liegen je Abschnitt in `stages/{stageId}`. Firestore kennt keine Listen in Listen,
+  deshalb `groups: [{ teamIds }]` (auch im Audit).
+- **Schreiben**: Spielplan speichern, tauschen, verschieben, Endrunde füllen und kampflos werten laufen
+  über `commitMatchChanges` (src/data/stages.ts): eine Transaktion, erwartete Revision je Spiel, ein
+  Audit-Eintrag am Turnier mit `before/after.matches` (Stand von Ort, Zeit, Teams je Spiel) für Rückgängig.
+  Was erlaubt ist, prüft vorher `src/ui/data/stages.ts` (gemeinsam mit dem mockStore).
+- **Zuschauer** sehen erst nach `publishTournament` etwas (`isPublic`). Die Tabelle rechnet die Seite selbst
+  aus Ergebnissen und Gruppen; `publicStandings` bleibt bei Baukasten-Turnieren leer.
+
+Schutzregeln dazu:
+
+- Teams und Platzhalter eines noch nicht angepfiffenen Baukasten-Spiels darf nur der Owner ändern
+  (`openStageMatchRepaired`), ebenso solche Spiele löschen (neuer Spielplan). Angepfiffene bleiben.
+- Helfer tragen nur Ergebnisse ein, auch Verlängerung/Neunmeter (`decidedBy`, `penaltiesA/B`), und nur,
+  wenn beide Teams feststehen. Öffentlich spiegeln sie `decidedBy`/`walkoverWinner` exakt.
+- Neunmeter-Treffer nur bei beendetem, per Neunmeterschießen entschiedenem Spiel nach Unentschieden mit
+  Sieger (`penaltiesOk`). Öffentlich stehen sie wie die Tore in `publicResults` (nicht im Kindermodus).
+- Lose verraten die Tabellenreihenfolge: in `publicStages` nur im Modus `full`; `setVisibility` zieht das nach.
 
 ## Helfer-Einladungen (§2.3 Punkt 6)
 

@@ -1,0 +1,271 @@
+/* Turnierleitung im Turnier-Baukasten: Ergänzungen zu app.css, gleiche Farben und Maße. */
+
+.match-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mu);
+  overflow-wrap: anywhere;
+}
+
+.result-note {
+  font-weight: 600;
+}
+
+.finals-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(2, auto);
+  gap: 8px 10px;
+  align-items: center;
+}
+
+.finals-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mu);
+  text-align: center;
+}
+
+.finals-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.stage-fill-list {
+  margin: 2px 0 4px;
+  padding-left: 18px;
+  display: grid;
+  gap: 2px;
+}
+
+.stage-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* Spielplan mit Tauschen */
+.slot-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.slot-head b {
+  font-size: 16px;
+}
+
+.sched-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.sched-card {
+  background: var(--card);
+  border: 1px solid var(--ln);
+  border-radius: var(--r-card);
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sched-card.live {
+  border: 1.5px solid var(--ac);
+}
+
+.sched-card.picked {
+  border: 1.5px solid var(--ac);
+  background: var(--acs);
+}
+
+.sched-card.target {
+  border-style: dashed;
+  border-color: var(--ac);
+  cursor: pointer;
+}
+
+.sched-card.drop {
+  background: var(--acs);
+}
+
+.sched-card.warn {
+  border-color: var(--o);
+}
+
+.sched-card[draggable='true'] {
+  cursor: grab;
+}
+
+.sched-card .t {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mu);
+  flex-wrap: wrap;
+}
+
+.sched-card .r {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  min-width: 0;
+}
+
+.sched-card .r > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sched-card .r .open {
+  color: var(--mu);
+  font-style: italic;
+}
+
+.sched-card .r .win {
+  font-weight: 700;
+}
+
+.sched-card .r .lose {
+  color: var(--mu);
+}
+
+.sched-card .r button {
+  font: inherit;
+  border: 1px dashed transparent;
+  background: none;
+  color: inherit;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  border-radius: 6px;
+  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sched-card .r button.pick {
+  border-color: var(--ac);
+  background: var(--acs);
+}
+
+.sched-card .r button.target {
+  border-color: var(--ac);
+}
+
+.sched-card .acts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 2px;
+}
+
+.swap-bar {
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+}
+
+/* Tabellen und Endrunde */
+.group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  gap: 14px;
+}
+
+.finals-grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.finals-card {
+  border-top-width: 6px;
+}
+
+.round-head {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mu);
+  margin-top: 10px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--ln);
+}
+
+.result-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  padding: 6px 0;
+}
+
+.result-line > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.result-line .s {
+  text-align: center;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.result-line .s small {
+  font-weight: 400;
+  color: var(--mu);
+  font-size: 11px;
+}
+
+.result-line .rt {
+  text-align: right;
+}
+
+.result-line .win {
+  font-weight: 700;
+}
+
+.result-line .lose,
+.result-line .open {
+  color: var(--mu);
+}
+
+.result-line .open {
+  font-style: italic;
+}
+
+.placement-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  column-gap: 28px;
+}
+
+.placement-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--soft);
+  min-width: 0;
+}
+
+.placement-row b {
+  width: 48px;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}

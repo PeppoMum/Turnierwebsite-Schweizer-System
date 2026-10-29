@@ -19,6 +19,7 @@ import type {
   Visibility,
 } from '../domain';
 import type { TeamStanding } from '../domain/scoring';
+import type { DrawMode, StageMatchFields, TournamentFormat } from '../domain/format';
 
 /** Felder, die als Firestore-Timestamp gespeichert werden. */
 type Stamped<T, K extends keyof T> = Omit<T, K> & { [P in K]: Timestamp };
@@ -43,6 +44,10 @@ export type MatchDoc = Stamped<Omit<Match, 'id' | 'completedAt'>, 'createdAt' | 
   goalsA?: number | null;
   goalsB?: number | null;
   notPlayedReason?: NotPlayedReason | null;
+  decidedBy?: StageMatchFields['decidedBy'] | null;
+  penaltiesA?: number | null;
+  penaltiesB?: number | null;
+  walkoverWinner?: StageMatchFields['walkoverWinner'] | null;
   /** Verweis auf den Audit-Eintrag der letzten Änderung (von den Regeln geprüft). */
   lastAuditId?: string;
   updatedBy?: string;
@@ -97,12 +102,37 @@ export interface AuditDoc {
   tournamentId: string;
   actorUid: string;
   action: string;
-  targetType: 'tournament' | 'match' | 'round' | 'team' | 'grant' | 'invitation' | 'visibility';
+  targetType: 'tournament' | 'match' | 'round' | 'team' | 'grant' | 'invitation' | 'visibility' | 'stage';
   targetId: string;
   before?: unknown;
   after?: unknown;
   timestamp: Timestamp;
   transactionId: string;
+}
+
+/** Firestore kennt keine Listen in Listen: Gruppen und Lostöpfe als Liste von `{ teamIds }`. */
+export interface TeamIdList {
+  teamIds: string[];
+}
+
+/** Ein gezogenes Los (siehe LotDecision in src/ui/data/types.ts). */
+export interface LotDoc {
+  id: string;
+  groupIndex?: number | null;
+  place?: number | null;
+  order: string[];
+  atISO: string;
+}
+
+/** Baukasten: Gruppeneinteilung und Lose eines Abschnitts, `tournaments/{tid}/stages/{stageId}`. */
+export interface StageDoc {
+  stageId: string;
+  groups?: TeamIdList[] | null;
+  mode?: DrawMode | null;
+  pots?: TeamIdList[] | null;
+  seed?: number | null;
+  lots?: LotDoc[];
+  updatedAt: Timestamp;
 }
 
 export interface TournamentRefDoc {
@@ -172,6 +202,8 @@ export interface PublicTournamentDoc {
    * dieser Erweiterung oder unter älteren Schutzregeln geschrieben wurden.
    */
   timing?: PublicTiming | null;
+  /** Baukasten: Ablauf des Turniers. Fehlt bei Schweizer-System-Turnieren. */
+  format?: TournamentFormat | null;
   sourceRevision: number;
   updatedAt: Timestamp;
 }
@@ -208,6 +240,15 @@ export interface PublicMatchDoc {
   startISO: string | null;
   durationMinutes: number;
   status: Exclude<MatchStatus, 'draft'>;
+  // Baukasten-Felder; fehlen bei Schweizer-System-Spielen. Nie Tore oder Neunmeter-Treffer.
+  stageId?: string;
+  groupIndex?: number | null;
+  matchKey?: string | null;
+  slotA?: StageMatchFields['slotA'] | null;
+  slotB?: StageMatchFields['slotB'] | null;
+  penaltyOnly?: boolean | null;
+  decidedBy?: StageMatchFields['decidedBy'] | null;
+  walkoverWinner?: StageMatchFields['walkoverWinner'] | null;
   sourceRevision: number;
   updatedAt: Timestamp;
 }
@@ -219,6 +260,9 @@ export interface PublicResultDoc {
   status: MatchStatus;
   goalsA: number | null;
   goalsB: number | null;
+  /** Nur bei Endrunden-Spielen mit Neunmeterschießen. */
+  penaltiesA?: number | null;
+  penaltiesB?: number | null;
   sourceRevision: number;
   updatedAt: Timestamp;
 }
@@ -235,3 +279,11 @@ export interface PublicStandingsDoc {
 }
 
 export const PUBLIC_STANDINGS_DOC_ID = 'current';
+
+/** Baukasten öffentlich: Gruppeneinteilung, Lose nur im Modus `full`. */
+export interface PublicStageDoc {
+  stageId: string;
+  groups: TeamIdList[];
+  lots?: LotDoc[];
+  updatedAt: Timestamp;
+}

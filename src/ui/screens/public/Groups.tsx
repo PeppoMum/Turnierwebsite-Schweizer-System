@@ -336,7 +336,7 @@ export function Groups({ ctx }: { ctx: Ctx }) {
   const anyLive = table.groups.some((g) => g.live);
   const title = table.groups.length > 1 ? 'Gruppen' : table.stage.name;
   const bestPlaces = [
-    ...new Set(model.format.stages.flatMap((s) => (s.entry?.fromStageId === table.stage.id ? (s.entry.best ?? []).map((b) => b.place) : []))),
+    ...new Set(model.format.stages.flatMap((s) => (s.entry?.fromStageId === table.stage.id ? (s.entry?.best ?? []).map((b) => b.place) : []))),
   ];
 
   return (

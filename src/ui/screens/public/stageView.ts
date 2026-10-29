@@ -1,25 +1,25 @@
-// Turnier-Baukasten auf der Zuschauerseite: was aus der öffentlichen Projektion angezeigt wird
-// (Gruppentabellen, Weiterkommen, Vorschau „Stand jetzt“, Endplatzierung). Regeln in docs/turnier-baukasten.md.
-//
-// Übergangslösung: Die Fachlogik dazu entsteht in src/domain/groups (Tabelle) und src/domain/format/resolve.ts
-// (Platzhalter, Endplatzierung). Bis die da sind, rechnet diese Datei die Anzeige selbst, mit denselben
-// Regeln, aber nur so weit, wie die Zuschauerseite sie braucht. Danach hier auf die Domain-Funktionen umstellen;
-// die Oberfläche benutzt nur die Funktionen und Typen aus dieser Datei.
-import type {
-  GroupStage,
-  GroupTableRow,
-  GroupTieBreaker,
-  KnockoutStage,
-  SlotRef,
-  StageColor,
-  StageConfig,
-  TieBreakVariant,
-  TournamentFormat,
+// Turnier-Baukasten auf der Zuschauerseite: bündelt, was aus der öffentlichen Projektion angezeigt wird
+// (Gruppentabellen, Weiterkommen, Vorschau „Stand jetzt“, Endplatzierung). Die Regeln stecken in
+// src/domain/groups (Tabellen) und src/domain/format/resolve.ts (Platzhalter, Endplatzierung), siehe
+// docs/turnier-baukasten.md. Die Oberfläche benutzt nur die Funktionen und Typen aus dieser Datei.
+import {
+  finalPlacements,
+  resolveFormat,
+  type FormatMatch,
+  type GroupStage,
+  type GroupTableRow,
+  type ResolveInput,
+  type SlotRef,
+  type StageColor,
+  type StageConfig,
+  type StageStandings,
+  type TournamentFormat,
 } from '../../../domain/format';
-import { TIE_BREAK_ORDER } from '../../../domain/format';
+import { calculateGroupStageStandings, carryOverFrom, groupLetter } from '../../../domain/groups';
+import { decideKnockoutMatch, matchLabel, rankBestOfPlace } from '../../../domain/knockout';
 import type { PublicMatch, PublicTournamentView } from '../../data/types';
 
-export const groupLetter = (i: number) => String.fromCharCode(65 + i);
+export { groupLetter, matchLabel };
 
 /** Eine Gruppe mit Tabelle. `rows` enthält nur gewertete Teams; zurückgezogene stehen in `unranked`. */
 export interface GroupView {
@@ -77,160 +77,11 @@ export interface StageModel {
   placements(): { placements: Placement[]; eliminated: string[] };
 }
 
-const POINTS = { win: 3, draw: 1 } as const;
-
-function counted(m: PublicMatch): boolean {
-  return m.status === 'completed' && m.goalsA !== undefined && m.goalsB !== undefined && !!m.teamAId && !!m.teamBId;
-}
-
-interface Acc {
-  played: number;
-  won: number;
-  drawn: number;
-  lost: number;
-  goalsFor: number;
-  goalsAgainst: number;
-  points: number;
-}
-
-const emptyAcc = (): Acc => ({ played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, points: 0 });
-
-function accumulate(teamIds: readonly string[], matches: readonly PublicMatch[], base?: ReadonlyMap<string, Acc>): Map<string, Acc> {
-  const ids = new Set(teamIds);
-  const acc = new Map(teamIds.map((id) => [id, { ...(base?.get(id) ?? emptyAcc()) }]));
-  for (const m of matches) {
-    if (!counted(m) || !ids.has(m.teamAId) || !ids.has(m.teamBId)) continue;
-    const a = acc.get(m.teamAId)!;
-    const b = acc.get(m.teamBId)!;
-    const ga = m.goalsA!;
-    const gb = m.goalsB!;
-    a.played++;
-    b.played++;
-    a.goalsFor += ga;
-    a.goalsAgainst += gb;
-    b.goalsFor += gb;
-    b.goalsAgainst += ga;
-    if (ga > gb) {
-      a.won++;
-      b.lost++;
-      a.points += POINTS.win;
-    } else if (ga < gb) {
-      b.won++;
-      a.lost++;
-      b.points += POINTS.win;
-    } else {
-      a.drawn++;
-      b.drawn++;
-      a.points += POINTS.draw;
-      b.points += POINTS.draw;
-    }
-  }
-  return acc;
-}
-
-function criterion(c: GroupTieBreaker, ids: readonly string[], acc: Map<string, Acc>, matches: readonly PublicMatch[]): Map<string, number[]> {
-  if (c === 'head_to_head') {
-    const mini = accumulate(ids, matches);
-    return new Map(ids.map((id) => {
-      const r = mini.get(id)!;
-      return [id, [r.points, r.goalsFor - r.goalsAgainst, r.goalsFor]];
-    }));
-  }
-  return new Map(ids.map((id) => {
-    const r = acc.get(id)!;
-    return [id, [c === 'goal_diff' ? r.goalsFor - r.goalsAgainst : c === 'goals_for' ? r.goalsFor : r.won]];
-  }));
-}
-
-const cmpVec = (a: number[], b: number[]) => {
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return b[i]! - a[i]!;
-  return 0;
-};
-
-/** Teilt eine Liste nach Schlüssel in Blöcke Gleichstehender (Reihenfolge bleibt). */
-function clusters(ids: string[], key: Map<string, number[]>): string[][] {
-  const sorted = [...ids].sort((x, y) => cmpVec(key.get(x)!, key.get(y)!));
-  const out: string[][] = [];
-  for (const id of sorted) {
-    const last = out[out.length - 1];
-    if (last && cmpVec(key.get(last[0]!)!, key.get(id)!) === 0) last.push(id);
-    else out.push([id]);
-  }
-  return out;
-}
-
-function rank(
-  ids: string[],
-  acc: Map<string, Acc>,
-  matches: readonly PublicMatch[],
-  order: readonly GroupTieBreaker[],
-  lots: readonly (readonly string[])[],
-  name: (id: string) => string,
-): Array<{ id: string; by?: GroupTableRow['decidedBy'] }> {
-  const out: Array<{ id: string; by?: GroupTableRow['decidedBy'] }> = [];
-  const split = (block: string[], step: number, by: GroupTableRow['decidedBy']) => {
-    if (block.length === 1) {
-      out.push({ id: block[0]!, by });
-      return;
-    }
-    if (step >= order.length) {
-      // Zuletzt das Los; ohne gezogenes Los vorläufig nach Name.
-      const lot = lots.find((l) => block.every((id) => l.includes(id)));
-      const sorted = [...block].sort((x, y) => (lot ? lot.indexOf(x) - lot.indexOf(y) : name(x).localeCompare(name(y), 'de')));
-      sorted.forEach((id, i) => out.push({ id, by: i === 0 ? by : 'lot' }));
-      return;
-    }
-    const c = order[step]!;
-    const parts = clusters(block, criterion(c, block, acc, matches));
-    // Trennt ein Kriterium nur teilweise, wird unter den weiterhin Gleichstehenden von vorn verglichen.
-    parts.forEach((p, i) => split(p, parts.length > 1 ? 0 : step + 1, i === 0 ? by : c));
-  };
-  const byPoints = clusters(ids, new Map(ids.map((id) => [id, [acc.get(id)!.points]])));
-  byPoints.forEach((block, i) => split(block, 0, i === 0 ? undefined : 'points'));
-  return out;
-}
-
-function tableOf(
-  teamIds: string[],
-  matches: readonly PublicMatch[],
-  variant: TieBreakVariant,
-  ranked: (id: string) => boolean,
-  lots: readonly (readonly string[])[],
-  name: (id: string) => string,
-  carry?: ReadonlyMap<string, Acc>,
-): { rows: GroupTableRow[]; unranked: string[] } {
-  const ids = teamIds.filter(ranked);
-  // Spiele mit zurückgezogenen Teams zählen für niemanden.
-  const acc = accumulate(ids, matches, carry);
-  const order = rank(ids, acc, matches, TIE_BREAK_ORDER[variant], lots, name);
-  const rows = order.map(({ id, by }, i): GroupTableRow => ({ teamId: id, place: i + 1, ...acc.get(id)!, ...(by ? { decidedBy: by } : {}) }));
-  return { rows, unranked: teamIds.filter((id) => !ranked(id)).sort((a, b) => name(a).localeCompare(name(b), 'de')) };
-}
-
-const finished = (m: PublicMatch) => m.status === 'completed' || m.status === 'not_played' || m.status === 'cancelled';
-
-/** Quotient für den Vergleich über Gruppen: Punkte, Tordifferenz, Tore, jeweils pro Spiel. */
-function quotientKey(r: GroupTableRow): number[] {
-  const n = r.played || 1;
-  return [r.points / n, (r.goalsFor - r.goalsAgainst) / n, r.goalsFor / n];
-}
+const counted = (m: PublicMatch) => m.status === 'completed' && m.goalsA !== undefined && m.goalsB !== undefined;
 
 const ROUND_NAMES: Record<string, string> = { R32_: 'Sechzehntelfinale', R16_: 'Achtelfinale', QF: 'Viertelfinale', SF: 'Halbfinale' };
 const ROUND_SIZE: Record<string, number> = { R32_: 32, R16_: 16, QF: 8, SF: 4 };
 const KEY_RE = /^(?:P(\d+)_)?(R32_|R16_|QF|SF)(\d+)$/;
-
-/** Anzeigename eines Endrunden-Spiels („Viertelfinale 2“, „Spiel um Platz 3“); Plätze ab `offset`. */
-export function matchLabel(key: string, offset = 0): string {
-  if (key === 'F') return 'Finale';
-  const p = /^P(\d+)$/.exec(key);
-  if (p) return `Spiel um Platz ${Number(p[1]) + offset}`;
-  const sub = KEY_RE.exec(key);
-  if (!sub) return key;
-  const [, from, round, n] = sub;
-  if (!from) return `${ROUND_NAMES[round!]} ${n}`;
-  const start = Number(from) + offset;
-  return `${ROUND_NAMES[round!]} ${n}, Platz ${start}–${start + ROUND_SIZE[round!]! - 1}`;
-}
 
 /** Runde im Hauptbaum (0 = erste Runde) oder null für Platzierungsspiele. */
 export function treeRound(key: string | undefined): { size: number; index: number } | null {
@@ -269,71 +120,73 @@ export function slotText(format: TournamentFormat, slot: SlotRef): { long: strin
   }
 }
 
-/** Sieger eines beendeten Endrunden-Spiels mit festen Teams, sonst null. */
-function decidedWinner(m: PublicMatch, withdrawn: (id: string) => boolean): string | null {
-  if (!m.teamAId || !m.teamBId) return null;
-  if (m.decidedBy === 'walkover' || m.status === 'not_played') {
-    if (withdrawn(m.teamAId) && !withdrawn(m.teamBId)) return m.teamBId;
-    if (withdrawn(m.teamBId) && !withdrawn(m.teamAId)) return m.teamAId;
-    return null;
-  }
-  if (m.status !== 'completed' || m.goalsA === undefined || m.goalsB === undefined) return null;
-  if (m.decidedBy === 'penalties' && m.penaltiesA !== undefined && m.penaltiesB !== undefined) {
-    return m.penaltiesA > m.penaltiesB ? m.teamAId : m.teamBId;
-  }
-  if (m.goalsA === m.goalsB) return null;
-  return m.goalsA > m.goalsB ? m.teamAId : m.teamBId;
-}
-
 export function buildStageModel(view: PublicTournamentView): StageModel | null {
   const format = view.format;
   if (!format) return null;
-  const teamStatus = new Map(view.teams.map((t) => [t.id, t.status]));
+  const teams = view.teams.map((t) => ({ id: t.id, name: t.name, status: t.status }));
   const names = new Map(view.teams.map((t) => [t.id, t.name]));
   const name = (id: string) => names.get(id) ?? '';
-  const isRanked = (id: string) => teamStatus.get(id) === 'active';
-  const withdrawn = (id: string) => !isRanked(id);
   const stageOf = (id: string | undefined) => format.stages.find((s) => s.id === id);
   const byStage = new Map<string, PublicMatch[]>();
   for (const m of view.matches) if (m.stageId) byStage.set(m.stageId, [...(byStage.get(m.stageId) ?? []), m]);
-  const lotsFor = (stageId: string, groupIndex?: number, place?: number) =>
-    (view.lots ?? []).filter((l) => l.stageId === stageId && l.groupIndex === groupIndex && l.place === place).map((l) => l.order);
+  const lots = view.lots ?? [];
+  const lotOrders: Record<string, string[]> = {};
+  for (const l of lots) if (l.groupIndex === undefined && l.place !== undefined) lotOrders[`${l.stageId}|${l.place}`] = l.order;
 
   const tables = new Map<string, StageTable>();
+  const standings: Record<string, StageStandings> = {};
   for (const stage of format.stages) {
     if (stage.kind !== 'groups' && stage.kind !== 'final_group') continue;
     const matches = byStage.get(stage.id) ?? [];
     const draw = view.groupDraws?.find((g) => g.stageId === stage.id);
-    let groupIds: string[][];
-    if (draw) groupIds = draw.groups;
-    else {
-      // Ohne gespeicherte Einteilung (Finalgruppe, Zwischenrunde): Teams aus den Spielen.
-      const count = stage.kind === 'groups' ? stage.groupCount : 1;
-      groupIds = Array.from({ length: count }, (_, gi) => [
+    // Ohne gespeicherte Einteilung (Finalgruppe, Zwischenrunde): Teams aus den Spielen.
+    const groupIds =
+      draw?.groups ??
+      Array.from({ length: stage.kind === 'groups' ? stage.groupCount : 1 }, (_, gi) => [
         ...new Set(matches.filter((m) => (m.groupIndex ?? 0) === gi).flatMap((m) => [m.teamAId, m.teamBId]).filter(Boolean)),
       ]);
-    }
-    let carry: Map<string, Acc> | undefined;
-    if (stage.kind === 'groups' && stage.carryOverPoints && stage.entry) {
-      const prev = tables.get(stage.entry.fromStageId);
-      if (prev) carry = new Map(prev.groups.flatMap((g) => g.rows.map((r) => [r.teamId, { ...r }] as const)));
-    }
+    const prev = stage.kind === 'groups' && stage.entry ? standings[stage.entry.fromStageId] : undefined;
+    const st = calculateGroupStageStandings({
+      stage: { id: stage.id, doubleRoundRobin: stage.doubleRoundRobin, carryOverPoints: stage.kind === 'groups' ? stage.carryOverPoints : false },
+      groups: groupIds,
+      teams,
+      matches: matches.filter((m) => m.teamAId && m.teamBId),
+      variant: format.tieBreakVariant,
+      lots: lots.filter((l) => l.stageId === stage.id && l.groupIndex !== undefined).map((l) => ({ teamIds: l.order })),
+      ...(prev ? { carryOver: carryOverFrom(prev.groups) } : {}),
+    });
+    standings[stage.id] = st;
     const groups = groupIds.map((teamIds, index): GroupView => {
       const gm = matches.filter((m) => (m.groupIndex ?? 0) === index);
-      const t = tableOf(teamIds, gm, format.tieBreakVariant, isRanked, lotsFor(stage.id, index), name, carry);
       return {
         index,
         name: groupLetter(index),
-        teamIds,
-        ...t,
+        teamIds: [...teamIds],
+        rows: st.tables[index]?.rows ?? [],
+        unranked: st.tables[index]?.unranked ?? [],
         matches: gm,
-        complete: gm.length > 0 && gm.every(finished),
+        complete: st.groupComplete[index] === true && gm.length > 0,
         started: gm.some((m) => m.status !== 'scheduled' && m.status !== 'draft'),
         live: gm.some((m) => m.status === 'live'),
       };
     });
     tables.set(stage.id, { stage, groups, complete: groups.length > 0 && groups.every((g) => g.complete) });
   }
+
+  const input: ResolveInput = {
+    format,
+    teams,
+    standings,
+    matches: view.matches.filter((m): m is PublicMatch & FormatMatch => !!m.stageId),
+    lotOrders,
+  };
+  const resolution = resolveFormat(input);
+  const resolved = new Map(resolution.matches.map((r) => [r.matchId, r]));
+  // Ohne ein einziges Ergebnis im Abschnitt gibt es noch keinen sinnvollen „Stand jetzt“.
+  const hasResults = (slot: Exclude<SlotRef, { kind: 'team' }>) =>
+    slot.kind === 'group_place'
+      ? (tables.get(slot.stageId)?.groups[slot.group]?.matches ?? []).some(counted)
+      : (byStage.get(slot.stageId) ?? []).some(counted);
 
   const marks = (stageId: string) => {
     const out = new Map<number, PlaceMark[]>();
@@ -348,51 +201,15 @@ export function buildStageModel(view: PublicTournamentView): StageModel | null {
 
   const bestOf = (stageId: string, place: number) => {
     const table = tables.get(stageId);
-    if (!table) return null;
+    const st = standings[stageId];
+    if (!table || !st) return null;
     let count = 0;
     for (const s of format.stages) {
       if (s.entry?.fromStageId === stageId) for (const b of s.entry.best ?? []) if (b.place === place) count += b.count;
     }
     if (count === 0) return null;
-    const rows = table.groups.flatMap((g) => g.rows.filter((r) => r.place === place).map((r) => ({ ...r, group: g.index })));
-    const lot = lotsFor(stageId, undefined, place);
-    rows.sort((a, b) => {
-      const d = cmpVec(quotientKey(a), quotientKey(b));
-      if (d) return d;
-      const l = lot.find((o) => o.includes(a.teamId) && o.includes(b.teamId));
-      return l ? l.indexOf(a.teamId) - l.indexOf(b.teamId) : name(a.teamId).localeCompare(name(b.teamId), 'de');
-    });
-    return { rows, count, complete: table.complete };
-  };
-
-  const resolving = new Set<string>();
-  const resolveSlot = (slot: SlotRef): Omit<SideView, 'slotLabel' | 'slotShort'> => {
-    switch (slot.kind) {
-      case 'team':
-        return { teamId: slot.teamId, provisional: false };
-      case 'group_place':
-      case 'table_place': {
-        const g = tables.get(slot.stageId)?.groups[slot.kind === 'group_place' ? slot.group : 0];
-        // Ohne ein einziges Ergebnis gibt es noch keinen sinnvollen „Stand jetzt“.
-        if (!g || !g.matches.some(counted)) return { teamId: null, provisional: false };
-        const row = g.rows.find((r) => r.place === slot.place);
-        return { teamId: row?.teamId ?? null, provisional: !g.complete };
-      }
-      case 'best_of_place': {
-        const b = bestOf(slot.stageId, slot.place);
-        const table = tables.get(slot.stageId);
-        if (!b || !table?.groups.some((g) => g.matches.some(counted))) return { teamId: null, provisional: false };
-        return { teamId: b.rows[slot.rank - 1]?.teamId ?? null, provisional: !b.complete };
-      }
-      case 'winner':
-      case 'loser': {
-        const m = (byStage.get(slot.stageId) ?? []).find((x) => x.matchKey === slot.matchKey);
-        if (!m || resolving.has(m.id)) return { teamId: null, provisional: false };
-        const w = decidedWinner(m, withdrawn);
-        if (!w) return { teamId: null, provisional: false };
-        return { teamId: slot.kind === 'winner' ? w : w === m.teamAId ? m.teamBId : m.teamAId, provisional: false };
-      }
-    }
+    const ranking = rankBestOfPlace(st, place, lotOrders[`${stageId}|${place}`]);
+    return { rows: ranking.rows.map((r) => ({ ...r.row, group: r.group })), count, complete: table.complete };
   };
 
   const side = (m: PublicMatch, s: 'A' | 'B'): SideView => {
@@ -401,109 +218,31 @@ export function buildStageModel(view: PublicTournamentView): StageModel | null {
     const text = slot && slot.kind !== 'team' ? slotText(format, slot) : undefined;
     const labels = text ? { slotLabel: text.long, ...(text.short ? { slotShort: text.short } : {}) } : {};
     if (stored) return { teamId: stored, provisional: false, ...labels };
-    if (!slot) return { teamId: null, provisional: false };
-    resolving.add(m.id);
-    try {
-      return { ...resolveSlot(slot), ...labels };
-    } finally {
-      resolving.delete(m.id);
-    }
+    const r = resolved.get(m.id)?.[s === 'A' ? 'a' : 'b'];
+    if (!r?.teamId) return { teamId: null, provisional: false, ...labels };
+    if (r.provisional && slot && slot.kind !== 'team' && !hasResults(slot)) return { teamId: null, provisional: false, ...labels };
+    return { teamId: r.teamId, provisional: r.provisional, ...labels };
+  };
+
+  const winnerOf = (m: PublicMatch) => {
+    const o = decideKnockoutMatch(m);
+    if (o.state !== 'decided') return null;
+    return side(m, o.winner).teamId;
   };
 
   const placements = () => {
-    const placed = new Map<string, Placement>();
-    const put = (teamId: string | null, stageId: string, from: number, to = from) => {
-      if (teamId && !placed.has(teamId)) placed.set(teamId, { teamId, placeFrom: from, placeTo: to, stageId });
-    };
-    for (const stage of format.stages) {
-      if (!stage.placeRange) continue;
-      const offset = stage.placeRange.from - 1;
-      const ms = byStage.get(stage.id) ?? [];
-      if (stage.kind === 'placement') {
-        for (const pm of stage.matches) {
-          const m = ms.find((x) => x.matchKey === pm.key);
-          const w = m && decidedWinner(m, withdrawn);
-          if (m && w) {
-            put(w, stage.id, pm.place);
-            put(w === m.teamAId ? m.teamBId : m.teamAId, stage.id, pm.place + 1);
-          }
-        }
-      } else if (stage.kind === 'knockout') {
-        placeKnockout(stage, ms, offset, put, withdrawn);
-      } else if (stage.kind === 'final_group') {
-        const t = tables.get(stage.id);
-        if (t?.complete) t.groups[0]?.rows.forEach((r) => put(r.teamId, stage.id, r.place + offset));
-      }
-    }
-    // Ausgeschieden: Gruppenplatz führt nirgendwohin (bzw. nicht unter den Besten), sobald das feststeht.
+    const result = finalPlacements(input);
+    const placed: Placement[] = [];
     const eliminated: string[] = [];
-    for (const [stageId, t] of tables) {
-      const later = format.stages.some((s) => s.entry?.fromStageId === stageId);
-      if (!later) continue;
-      const mk = marks(stageId);
-      for (const g of t.groups) {
-        if (!g.complete) continue;
-        for (const r of g.rows) {
-          const ms = mk.get(r.place) ?? [];
-          if (ms.some((x) => !x.best)) continue;
-          if (ms.length > 0) {
-            const b = bestOf(stageId, r.place);
-            if (!b?.complete || b.rows.findIndex((x) => x.teamId === r.teamId) < b.count) continue;
-          }
-          if (!placed.has(r.teamId)) eliminated.push(r.teamId);
-        }
-      }
+    for (const p of result.placements) {
+      if ('placeFrom' in p) placed.push(p);
+      else eliminated.push(p.teamId);
     }
-    for (const t of view.teams) if (withdrawn(t.id) && !placed.has(t.id) && !eliminated.includes(t.id)) eliminated.push(t.id);
-    return { placements: [...placed.values()].sort((a, b) => a.placeFrom - b.placeFrom || name(a.teamId).localeCompare(name(b.teamId), 'de')), eliminated };
+    placed.sort((a, b) => a.placeFrom - b.placeFrom || name(a.teamId).localeCompare(name(b.teamId), 'de'));
+    return { placements: placed, eliminated };
   };
 
-  return {
-    format,
-    tables,
-    stageOf,
-    side,
-    winnerOf: (m) => decidedWinner(m, withdrawn),
-    marks,
-    bestOf,
-    placements,
-  };
-}
-
-/**
- * Endplätze aus einem K.-o.-Baum: Finale und Spiele um Platz n vergeben feste Plätze. Wer in einer Runde
- * verliert, nach der für die Verlierer nichts mehr ausgespielt wird, teilt sich die Plätze („5.–8.“).
- */
-function placeKnockout(
-  stage: KnockoutStage,
-  ms: readonly PublicMatch[],
-  offset: number,
-  put: (teamId: string | null, stageId: string, from: number, to?: number) => void,
-  withdrawn: (id: string) => boolean,
-) {
-  const keys = new Set(ms.map((m) => m.matchKey).filter(Boolean) as string[]);
-  const hasFrom = (from: number) => [...keys].some((k) => k === `P${from}` || k.startsWith(`P${from}_`) || (from === 1 && !k.startsWith('P')));
-  // Zuerst die Endspiele (feste Plätze), dann die geteilten Plätze.
-  const sorted = [...ms].sort((a, b) => Number(KEY_RE.test(a.matchKey ?? '')) - Number(KEY_RE.test(b.matchKey ?? '')));
-  for (const m of sorted) {
-    const key = m.matchKey;
-    const w = key ? decidedWinner(m, withdrawn) : null;
-    if (!key || !w) continue;
-    const l = w === m.teamAId ? m.teamBId : m.teamAId;
-    const final = key === 'F' ? 1 : /^P(\d+)$/.exec(key)?.[1];
-    if (final !== undefined) {
-      const from = Number(final);
-      put(w, stage.id, from + offset);
-      put(l, stage.id, from + 1 + offset);
-      continue;
-    }
-    const sub = KEY_RE.exec(key);
-    if (!sub) continue;
-    const from = sub[1] ? Number(sub[1]) : 1;
-    const size = ROUND_SIZE[sub[2]!]!;
-    const loserFrom = from + size / 2;
-    if (!hasFrom(loserFrom)) put(l, stage.id, loserFrom + offset, from + size - 1 + offset);
-  }
+  return { format, tables, stageOf, side, winnerOf, marks, bestOf, placements };
 }
 
 /** Farbe eines Abschnitts als CSS-Wert (Medaillenfarben nach Style Guide). */

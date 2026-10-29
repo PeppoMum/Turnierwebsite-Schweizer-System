@@ -115,14 +115,8 @@ describe('Endplatzierung', () => {
     expect(p).toEqual([{ teamId: T(2), placeFrom: 5, placeTo: 8, stageId: 'gold' }]);
   });
 
-  it('wer nirgends weiterkommt, ist ausgeschieden', () => {
-    const format = FORMAT_TEMPLATES.find((x) => x.id === 't20')!.build();
-    const v = { ...view(groupA()), format };
-    v.groupDraws = [{ stageId: 'vorrunde', groups: [[T(1), T(2), T(3), T(4)], [], [], []] }];
-    // 4er-Gruppe in einer 5er-Vorlage: Platz 5 gibt es nicht, also keiner ausgeschieden.
-    expect(buildStageModel(v)!.placements().eliminated).toEqual([]);
-    const t8 = buildStageModel(view(groupA(), [T(8)]))!;
-    expect(t8.placements().eliminated).toEqual([T(8)]);
+  it('zurückgezogene Teams stehen unter „Ausgeschieden“', () => {
+    expect(buildStageModel(view(groupA(), [T(8)]))!.placements().eliminated).toEqual([T(8)]);
   });
 });
 

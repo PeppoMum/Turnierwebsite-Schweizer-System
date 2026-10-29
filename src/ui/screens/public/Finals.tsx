@@ -154,7 +154,7 @@ function StageCard({ ctx, stage, fav }: { ctx: Ctx; stage: FinalStage; fav: stri
               const [a, b] = sidesOf(ctx, m);
               const w = ctx.model!.winnerOf(m);
               const name = (s: typeof a) => {
-                const cls = [!s.teamId ? 'st-open' : s.provisional ? 'st-preview' : '', w && s.teamId === w ? 'st-win' : w ? 'muted' : '', s.teamId === fav ? 'st-fav' : '']
+                const cls = [!s.teamId ? 'st-open' : s.provisional ? 'st-preview' : '', w && s.teamId === w ? 'st-win' : w ? 'muted' : '', !!fav && s.teamId === fav ? 'st-fav' : '']
                   .filter(Boolean)
                   .join(' ');
                 return <span className={cls}>{s.teamId ? teamName(ctx, s.teamId) : (s.slotLabel ?? 'Noch offen')}</span>;

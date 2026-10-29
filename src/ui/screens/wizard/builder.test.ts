@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FORMAT_TEMPLATES } from '../../../domain/format';
 import { addFinalRound, checkBuilder, defaultBuilder, entryText, fromFormat, groupSizeText, setFinalsMode, toFormat } from './builder';
-import { buildStageMatches, firstRoundPairs, planCreation, toPlannedMatches } from './plan';
+import { buildStageMatches, planCreation, toPlannedMatches } from './plan';
 
 const fields = [1, 2, 3, 4].map((i) => ({
   id: `f${i}`,
@@ -115,9 +115,15 @@ describe('Spielgerüst beim Anlegen', () => {
     expect(saved.filter((m) => m.slotA?.kind === 'best_of_place' || m.slotB?.kind === 'best_of_place')).toHaveLength(2);
   });
 
-  it('vermeidet Gruppen-Duelle in der ersten Runde', () => {
-    const seeds = [0, 1, 2, 0, 1, 2, null, null].map((group) => ({ group }));
-    for (const [a, b] of firstRoundPairs(seeds)) if (a.group !== null) expect(a.group).not.toBe(b.group);
+  it('nimmt Baum und Schlüssel aus der K.-o.-Logik: alle Plätze ausspielen bei 8 Teams', () => {
+    const format = FORMAT_TEMPLATES.find((x) => x.id === 't12')!.build();
+    const ko = format.stages[1]!;
+    if (ko.kind === 'knockout') ko.allPlaces = true;
+    const keys = buildStageMatches(format, 12)
+      .filter((m) => m.stageId === 'endrunde')
+      .map((m) => m.matchKey);
+    expect(keys).toEqual(expect.arrayContaining(['QF1', 'SF1', 'F', 'P3', 'P5_SF1', 'P5', 'P7']));
+    expect(keys).toHaveLength(12);
   });
 
   it('Zwischenrunde über Kreuz bekommt Platzhalter aus der Vorrunde', () => {

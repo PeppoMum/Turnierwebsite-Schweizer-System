@@ -2,69 +2,15 @@
 // Live-Skizze (mit Ersatz-Teams) und den Plan, der nach dem Anlegen gespeichert wird (mit der
 // echten Gruppeneinteilung).
 //
-// Gruppenspiele kommen aus src/domain/groups, Zeiten und Felder aus src/domain/schedule.
-// Die Endrunden-Spiele bekommen Platzhalter („1. Gruppe A“, „Sieger QF1“). Die Paarung der ersten
-// K.-o.-Runde ist hier eine einfache Setzliste (Bester gegen Schwächsten, keine zwei Teams derselben
-// Gruppe gegeneinander); Tauschen und das Füllen der Endrunde übernimmt die Turnierleitung.
-import type { DrawMode, GroupStage, SlotRef, StageConfig, TournamentFormat } from '../../../domain/format';
+// Gruppenspiele kommen aus src/domain/groups, K.-o.-Baum und Platzierungsspiele aus src/domain/knockout,
+// Zeiten und Felder aus src/domain/schedule. Die Endrunden-Spiele bekommen Platzhalter („1. Gruppe A“,
+// „Sieger QF1“); das Füllen der Endrunde und Tauschen übernimmt die Turnierleitung.
+import type { DrawMode, GroupStage, SlotRef, TournamentFormat } from '../../../domain/format';
 import { crossoverGroups, evenGroupSizes, groupFixtures, groupSizesFor } from '../../../domain/groups';
+import { buildBracket, entrySlots, placementMatches } from '../../../domain/knockout';
 import { buildFormatSkeleton, planTournamentDay, type DayPlan, type DayPlanConstraints, type StageMatchToPlan } from '../../../domain/schedule';
 import type { ScheduleField } from '../../../domain/schedule';
 import type { PlannedStageMatch } from '../../data/types';
-
-/** Einstiegsplätze eines Abschnitts in Setzreihenfolge: erst alle Ersten, dann alle Zweiten …, dann die Besten. */
-export function entrySeeds(stage: StageConfig, tableSizes: ReadonlyMap<string, number[]>): Array<{ slot: SlotRef; group: number | null }> {
-  if (!stage.entry) return [];
-  const { fromStageId, places, best } = stage.entry;
-  const sizes = tableSizes.get(fromStageId) ?? [];
-  const out: Array<{ slot: SlotRef; group: number | null }> = [];
-  for (const place of [...places].sort((a, b) => a - b)) {
-    sizes.forEach((size, group) => {
-      if (place > size) return;
-      out.push({
-        slot: sizes.length === 1 ? { kind: 'table_place', stageId: fromStageId, place } : { kind: 'group_place', stageId: fromStageId, group, place },
-        group: sizes.length === 1 ? null : group,
-      });
-    });
-  }
-  for (const b of best ?? []) {
-    for (let rank = 1; rank <= b.count; rank++)
-      out.push({
-        slot: {
-          kind: 'best_of_place',
-          stageId: fromStageId,
-          place: b.place,
-          rank,
-        },
-        group: null,
-      });
-  }
-  return out;
-}
-
-/**
- * Erste K.-o.-Runde: Setzplatz i gegen n-1-i. Treffen dabei zwei Teams derselben Gruppe aufeinander,
- * wird die B-Seite mit einem anderen Spiel getauscht, wenn das keinen neuen Konflikt schafft.
- */
-export function firstRoundPairs<T extends { group: number | null }>(seeds: readonly T[]): Array<[T, T]> {
-  const n = seeds.length;
-  const pairs: Array<[T, T]> = [];
-  for (let i = 0; i < n / 2; i++) pairs.push([seeds[i]!, seeds[n - 1 - i]!]);
-  const clash = (a: T, b: T) => a.group !== null && a.group === b.group;
-  for (let i = 0; i < pairs.length; i++) {
-    if (!clash(pairs[i]![0], pairs[i]![1])) continue;
-    for (let j = pairs.length - 1; j >= 0; j--) {
-      if (j === i) continue;
-      if (!clash(pairs[i]![0], pairs[j]![1]) && !clash(pairs[j]![0], pairs[i]![1])) {
-        const b = pairs[i]![1];
-        pairs[i]![1] = pairs[j]![1];
-        pairs[j]![1] = b;
-        break;
-      }
-    }
-  }
-  return pairs;
-}
 
 /** Ein Spiel des Gerüsts; `penaltyOnly` für reine Neunmeterspiele. */
 export type BuiltMatch = StageMatchToPlan & { penaltyOnly?: boolean };
@@ -131,35 +77,32 @@ export function buildStageMatches(format: TournamentFormat, teamCount: number, p
       continue;
     }
 
-    // Endrunden: Gerüst aus der Spielplan-Logik, dessen Platzhalter „n. Platz dieses Abschnitts“ durch die
-    // Einstiegsplätze ersetzt werden.
-    const seeds = entrySeeds(stage, tableSizes);
-    const replace = new Map<number, SlotRef>();
-    if (stage.kind === 'knockout') {
-      firstRoundPairs(seeds).forEach(([a, b], i) => {
-        replace.set(2 * i + 1, a.slot);
-        replace.set(2 * i + 2, b.slot);
-      });
+    // Endrunden: K.-o.-Baum und Platzierungsspiele aus der K.-o.-Logik, Finalgruppe aus dem Gerüst der
+    // Spielplan-Logik mit den Einstiegsplätzen statt „n. Platz dieses Abschnitts“.
+    const source = stage.entry ? format.stages.find((x) => x.id === stage.entry!.fromStageId) : undefined;
+    const entrants = stage.entry && source ? entrySlots(stage.entry, source, tableSizes.get(source.id) ?? []) : [];
+    if (stage.kind === 'final_group') {
+      const map = (slot: SlotRef | undefined) => (slot?.kind === 'table_place' && slot.stageId === stage.id ? (entrants[slot.place - 1] ?? slot) : slot);
+      for (const m of skeleton.filter((x) => x.stageId === stage.id)) {
+        add({ stageId: stage.id, groupIndex: 0, roundNumber: m.roundNumber, slotA: map(m.slotA), slotB: map(m.slotB) });
+      }
     } else {
-      seeds.forEach((s, i) => replace.set(i + 1, s.slot));
+      const bracket = stage.kind === 'knockout' ? buildBracket(stage, entrants) : placementMatches(stage);
+      const offset = (stage.placeRange?.from ?? 1) - 1;
+      for (const m of bracket) {
+        add({
+          stageId: stage.id,
+          matchKey: m.key,
+          roundNumber: m.round,
+          ...(m.range.to - m.range.from === 1 ? { place: offset + m.range.from } : {}),
+          slotA: m.slotA,
+          slotB: m.slotB,
+          ...(stage.kind === 'knockout' && m.key === 'F' && stage.finalMatchMinutes ? { durationMinutes: stage.finalMatchMinutes } : {}),
+          ...(m.penaltyOnly ? { penaltyOnly: true } : {}),
+        });
+      }
     }
-    const map = (slot: SlotRef | undefined) => (slot && slot.kind === 'table_place' && slot.stageId === stage.id ? (replace.get(slot.place) ?? slot) : slot);
-    const penaltyOnly = new Set(stage.kind === 'knockout' ? (stage.penaltyOnlyMatchKeys ?? []) : []);
-    for (const m of skeleton.filter((x) => x.stageId === stage.id)) {
-      const placementMatch = stage.kind === 'placement' ? stage.matches.find((pm) => pm.key === m.matchKey) : undefined;
-      add({
-        stageId: stage.id,
-        matchKey: m.matchKey,
-        roundNumber: m.roundNumber,
-        place: m.place,
-        slotA: map(m.slotA),
-        slotB: map(m.slotB),
-        ...(stage.kind === 'final_group' ? { groupIndex: 0 } : {}),
-        ...(stage.kind === 'knockout' && m.matchKey === 'F' && stage.finalMatchMinutes ? { durationMinutes: stage.finalMatchMinutes } : {}),
-        ...((m.matchKey && penaltyOnly.has(m.matchKey)) || placementMatch?.penaltyOnly ? { penaltyOnly: true } : {}),
-      });
-    }
-    tableSizes.set(stage.id, [seeds.length]);
+    tableSizes.set(stage.id, [entrants.length]);
   }
   return out.filter((m) => stageIds.has(m.stageId));
 }

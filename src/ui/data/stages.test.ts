@@ -221,6 +221,27 @@ describe('Baukasten in der Datenhaltung', () => {
     expect(match(s2, 'SF1').walkoverWinner).toBeUndefined();
   });
 
+  it('Nachrücker aus einem Platzierungsspiel wird dort herausgenommen', async () => {
+    const s = store();
+    await fillSemis(s);
+    const [a, b] = data(s).groupDraws![0]!.groups;
+    const p5 = match(s, 'P5');
+    await s.confirmSlotFills(TID, [
+      { matchId: p5.id, side: 'A', teamId: a![2]! },
+      { matchId: p5.id, side: 'B', teamId: b![2]! },
+    ]);
+    await s.withdrawQualifiedTeam(TID, match(s, 'SF1').teamAId, { kind: 'replace', byTeamId: a![2]! });
+    expect(match(s, 'SF1')).toMatchObject({ teamAId: a![2], slotA: { kind: 'team', teamId: a![2] } });
+    expect(match(s, 'P5')).toMatchObject({ teamAId: '', slotA: p5.slotA, teamBId: b![2] });
+
+    // Rückgängig stellt beide Spiele wieder her.
+    const entry = (await s.loadHistory(TID)).find((e) => e.action === 'team.withdraw_qualified')!;
+    await s.undoHistory(TID, (await s.loadHistory(TID))[0]!);
+    await s.undoHistory(TID, entry);
+    expect(match(s, 'P5').teamAId).toBe(a![2]);
+    expect(match(s, 'SF1').teamAId).toBe(a![0]);
+  });
+
   it('Lose werden gespeichert und für dieselben Teams ersetzt', async () => {
     const s = store();
     const [a] = data(s).groupDraws![0]!.groups;

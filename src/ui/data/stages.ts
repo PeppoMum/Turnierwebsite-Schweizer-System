@@ -360,7 +360,31 @@ export function withdrawQualifiedIn(
     if (d.matches.some((m) => stages.has(m.stageId) && (m.teamAId === by.id || m.teamBId === by.id))) {
       throw new Error(`${by.name} spielt in dieser Endrunde schon mit.`);
     }
+    // Spielt der Nachrücker bisher in einem anderen Abschnitt derselben Runde (z. B. Platzierungsspiel),
+    // wird er dort herausgenommen; die Lücke füllt die Turnierleitung danach.
+    const phases = new Set(finals.map((m) => stageOf(d, m.stageId)?.phase));
+    const elsewhere = d.matches.filter(
+      (m) =>
+        m.stageId &&
+        !stages.has(m.stageId) &&
+        stageOf(d, m.stageId)?.kind !== 'groups' &&
+        phases.has(stageOf(d, m.stageId)?.phase) &&
+        (m.teamAId === by.id || m.teamBId === by.id),
+    );
+    if (elsewhere.some((m) => !isOpen(m))) throw new Error(`${by.name} hat in dieser Runde schon gespielt und kann nicht nachrücken.`);
+    for (const m of elsewhere) {
+      before.push(layoutSnap(m));
+      for (const side of ['A', 'B'] as const) {
+        const v = sideGet(m, side);
+        if (v.teamId !== by.id) continue;
+        const pinned = v.slot?.kind === 'team' && v.slot.teamId === by.id;
+        sideSet(m, side, { teamId: '', slot: pinned ? undefined : v.slot });
+      }
+      m.manual = true;
+    }
+    finals.push(...elsewhere);
     for (const m of finals) {
+      if (elsewhere.includes(m)) continue;
       if (m.teamAId === teamId) {
         m.teamAId = by.id;
         m.slotA = { kind: 'team', teamId: by.id };

@@ -1,7 +1,7 @@
 // Beispiel-Datenhaltung im Browser (localStorage), bis Firestore angebunden ist.
 import type { Match, Round, Team } from '../../domain';
 import { createFixtures } from './fixtures';
-import { createWaveSchedule, zonedLocalToISO } from '../../domain/schedule';
+import { createWaveSchedule, zonedLocalToISO, type MatchPlacement } from '../../domain/schedule';
 import { previewNextRound, toPublicView } from './logic';
 import type { TournamentService } from './service';
 import { assertDetails, checkedTeamName, detailsOf, movedStartISO, nextTeamId } from './details';
@@ -24,6 +24,7 @@ import {
   fillSlotsIn,
   scoreEditDecision,
   moveMatchIn,
+  placeMatchesIn,
   swapMatchesIn,
   swapSidesIn,
   withdrawQualifiedIn,
@@ -745,6 +746,9 @@ export class MockTournamentStore implements TournamentService {
       case 'reshape':
         this.commitReshape(tid, plan.title, plan.state);
         break;
+      case 'team-present':
+        await this.setTeamPresent(tid, plan.teamId, plan.present);
+        break;
       case 'tournament-reopen': {
         this.mutate(tid, (x) => {
           x.tournament.status = 'running';
@@ -866,6 +870,22 @@ export class MockTournamentStore implements TournamentService {
       ...(choice.kind === 'replace' ? { byTeamId: choice.byTeamId } : {}),
     });
     if (src.teams.find((t) => t.id === teamId)?.status === 'active') await this.withdrawTeam(tid, teamId);
+  }
+
+  async setTeamPresent(tid: string, teamId: string, present: boolean): Promise<void> {
+    const src = this.get(tid);
+    const team = src?.teams.find((t) => t.id === teamId);
+    if (!team) throw new Error('Mannschaft nicht gefunden.');
+    if (Boolean(team.checkedInAt) === present) return;
+    this.mutate(tid, (d) => {
+      const t = d.teams.find((x) => x.id === teamId)!;
+      t.checkedInAt = present ? nowISO() : undefined;
+    });
+    this.log(tid, { action: 'team.present', targetType: 'team', targetId: teamId, before: { present: !present }, after: { teamId, present } });
+  }
+
+  async placeMatches(tid: string, reason: 'compact' | 'longer', placements: MatchPlacement[]): Promise<void> {
+    this.changeLayout(tid, `schedule.${reason}`, (d) => placeMatchesIn(d, placements));
   }
 
   async publishTournament(tid: string): Promise<void> {

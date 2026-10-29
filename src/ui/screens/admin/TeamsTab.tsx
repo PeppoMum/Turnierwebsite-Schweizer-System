@@ -23,11 +23,23 @@ export function TeamsTab({ ctx }: { ctx: AdminCtx }) {
   const [undo, setUndo] = useState<Team | null>(null);
   const [editing, setEditing] = useState<Team | 'new' | null>(null);
   const active = data.teams.filter((t) => t.status === 'active').length;
+  const present = data.teams.filter((t) => t.status === 'active' && t.checkedInAt).length;
+  const running = data.tournament.status !== 'finished' && data.tournament.status !== 'archived';
+  const [presentError, setPresentError] = useState<string | null>(null);
+  const togglePresent = async (team: Team, on: boolean) => {
+    setPresentError(null);
+    try {
+      await service.setTeamPresent(data.tournament.id, team.id, on);
+    } catch (e) {
+      setPresentError(e instanceof Error ? e.message : 'Das hat nicht geklappt.');
+    }
+  };
 
   return (
     <>
       <div className="row">
         <span className="pill a">{active} aktive Teams</span>
+        {running && <span className="pill">{present === active ? 'Alle sind da' : `${present} von ${active} sind da`}</span>}
         {active % 2 === 1 && !data.tournament.format && <span className="pill y">Ungerade Zahl: pro Runde ein Freilos</span>}
         {data.tournament.status !== 'finished' && data.tournament.status !== 'archived' && (
           <button type="button" className="btn" style={{ marginLeft: 'auto' }} onClick={() => setEditing('new')}>
@@ -54,6 +66,13 @@ export function TeamsTab({ ctx }: { ctx: AdminCtx }) {
           </button>
         </Notice>
       )}
+      {running && (
+        <span className="small-text">
+          Hak „ist da“ ab, sobald eine Mannschaft am Platz ist. Rücken Spiele nach vorne, zum Beispiel beim Straffen des Plans, kommen diese
+          Mannschaften zuerst dran, und bei den anderen weist dich die Seite darauf hin.
+        </span>
+      )}
+      {presentError && <Notice tone="warn" title={presentError} />}
       <div className="list">
         {data.teams.map((t) => {
           const s = STATUS_LABEL[t.status];
@@ -62,6 +81,11 @@ export function TeamsTab({ ctx }: { ctx: AdminCtx }) {
               <span className="grow">
                 <TeamName name={t.name} logo={ctx.teamLogo(t.id)} muted={t.status !== 'active'} />
               </span>
+              {running && t.status === 'active' && (
+                <label className="check">
+                  <input type="checkbox" checked={Boolean(t.checkedInAt)} onChange={(e) => togglePresent(t, e.target.checked)} /> ist da
+                </label>
+              )}
               <span className={`pill ${s.tone}`}>{s.text}</span>
               <button type="button" className="btn" aria-label={`${t.name} ändern`} onClick={() => setEditing(t)}>
                 Ändern

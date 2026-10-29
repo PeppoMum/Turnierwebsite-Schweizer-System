@@ -271,4 +271,46 @@ describe('Baukasten in der Datenhaltung', () => {
     expect(pm.penaltiesA).toBeUndefined();
     expect(pm.goalsA).toBeUndefined();
   });
+  it('Plan straffen und längere Spielzeit: neue Zeiten und Dauer, im Verlauf, rückgängig machbar', async () => {
+    const s = store();
+    const f = match(s, 'F');
+    const p3 = match(s, 'P3');
+    const earlier = new Date(Date.parse(f.startISO!) - 15 * 60000).toISOString();
+    await s.placeMatches(TID, 'compact', [{ matchId: f.id, fieldId: p3.fieldId!, startISO: earlier }]);
+    expect(match(s, 'F')).toMatchObject({ startISO: earlier, fieldId: p3.fieldId });
+    expect(match(s, 'F').manual).toBeUndefined();
+    let entries = await s.loadHistory(TID);
+    expect(describeHistory(entries, data(s))[0]!.text).toBe('Plan gestrafft: 1 Spiel rückt nach vorne');
+    expect(undoChecks(entries, data(s)).get(entries[0]!.id)).toMatchObject({ ok: true });
+    await s.undoHistory(TID, entries[0]!);
+    expect(match(s, 'F')).toMatchObject({ startISO: f.startISO, fieldId: f.fieldId });
+
+    await s.placeMatches(TID, 'longer', [{ matchId: p3.id, fieldId: p3.fieldId!, startISO: p3.startISO!, durationMinutes: 18 }]);
+    expect(match(s, 'P3').durationMinutes).toBe(18);
+    expect(s.getPublic(TID)!.matches.find((m) => m.matchKey === 'P3')!.durationMinutes).toBe(18);
+    entries = await s.loadHistory(TID);
+    expect(describeHistory(entries, data(s))[0]!.text).toBe('Dreiergruppe spielt länger (18 Min.): 1 Spiel');
+    await s.undoHistory(TID, entries[0]!);
+    expect(match(s, 'P3').durationMinutes).toBe(p3.durationMinutes);
+
+    const live = data(s).matches.find((m) => m.status === 'live')!;
+    await expect(s.placeMatches(TID, 'compact', [{ matchId: live.id, fieldId: live.fieldId!, startISO: earlier }])).rejects.toThrow(/angepfiffen/);
+    await expect(s.placeMatches(TID, 'longer', [{ matchId: p3.id, fieldId: p3.fieldId!, startISO: p3.startISO!, durationMinutes: 0 }])).rejects.toThrow(
+      /Spielzeit/,
+    );
+  });
+
+  it('Haken „ist da“: gespeichert, im Verlauf, rückgängig machbar, nicht für Zuschauer', async () => {
+    const s = store();
+    const team = data(s).teams[0]!;
+    await s.setTeamPresent(TID, team.id, true);
+    expect(data(s).teams[0]!.checkedInAt).toBeTruthy();
+    expect(JSON.stringify(s.getPublic(TID)!.teams)).not.toContain('checkedInAt');
+    const entries = await s.loadHistory(TID);
+    expect(describeHistory(entries, data(s))[0]!.text).toBe(`${team.name} ist da`);
+    await s.setTeamPresent(TID, team.id, true); // doppelt: keine neue Zeile
+    expect((await s.loadHistory(TID)).length).toBe(entries.length);
+    await s.undoHistory(TID, entries[0]!);
+    expect(data(s).teams[0]!.checkedInAt).toBeUndefined();
+  });
 });

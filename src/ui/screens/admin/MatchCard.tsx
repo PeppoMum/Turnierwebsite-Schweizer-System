@@ -60,6 +60,7 @@ export function MatchCard({
   finals,
   resultLabel,
   correctWarning,
+  durationNote,
 }: {
   tid: string;
   match: Match;
@@ -73,6 +74,8 @@ export function MatchCard({
   canCorrect?: boolean;
   /** Baukasten: Abschnitt und Spiel, z. B. „Endrunde · Halbfinale 1“. */
   title?: string;
+  /** Baukasten: Hinweis auf eine andere Spielzeit als üblich, z. B. „18 Min. Spielzeit“. */
+  durationNote?: string;
   /** Baukasten: Anzeigenamen, auch für Platzhalter wie „1. Gruppe A“. */
   nameA?: string;
   nameB?: string;
@@ -118,6 +121,7 @@ export function MatchCard({
       <div className="match-meta">
         <span style={{ fontWeight: 600, color: 'var(--tx)' }}>{fieldName}</span>
         <span>{formatTime(match.startISO, timeZone)}</span>
+        {durationNote && <span className="pill y">{durationNote}</span>}
         <span className="spacer" />
         <MatchStatusPill status={match.status} />
       </div>

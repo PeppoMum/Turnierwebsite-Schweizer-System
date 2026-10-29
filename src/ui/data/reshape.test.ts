@@ -56,7 +56,7 @@ describe('Turnier umstellen', () => {
     expect(after.tournament.format!.stages.find((x) => x.id === 'platzierung')).toMatchObject({ placeRange: { from: 5, to: 7 } });
 
     const history = await s.loadHistory(TID);
-    expect(describeHistory(history, after, {})[0]!.text).toContain('Turnier umgestellt: Lücke lassen');
+    expect(describeHistory(history, after)[0]!.text).toContain('Turnier umgestellt: Lücke lassen');
     const check = undoChecks(history, after).get(history[0]!.id);
     expect(check?.ok).toBe(true);
     await s.undoHistory(TID, history[0]!);

@@ -3,6 +3,7 @@
 // Schreibfehler (fehlende Rechte, inzwischen geänderte Daten) als Error mit deutscher, verständlicher Meldung werfen;
 // die Oberfläche zeigt sie an.
 import type { MatchStatus, NotPlayedReason, Visibility } from '../../domain';
+import type { MatchPlacement } from '../../domain/schedule';
 import type {
   GroupDraw,
   HistoryEntry,
@@ -94,6 +95,13 @@ export interface TournamentService {
   saveLot(tid: string, lot: Omit<LotDecision, 'id' | 'atISO'>): Promise<void>;
   /** Qualifiziertes Team zieht vor seinem Endrunden-Spiel zurück: Gegner kampflos weiter oder Nachrücker. */
   withdrawQualifiedTeam(tid: string, teamId: string, choice: WithdrawalChoice): Promise<void>;
+  /** Haken „ist da“ für eine Mannschaft setzen oder entfernen (nur Turnierleitung, steht im Verlauf). */
+  setTeamPresent(tid: string, teamId: string, present: boolean): Promise<void>;
+  /**
+   * Mehrere noch nicht angepfiffene Spiele auf einmal neu setzen: `compact` = Plan straffen nach einem
+   * Ausfall, `longer` = Dreiergruppe spielt länger. Vorschläge kommen aus src/domain/schedule/compact.ts.
+   */
+  placeMatches(tid: string, reason: 'compact' | 'longer', placements: MatchPlacement[]): Promise<void>;
   /** Gruppen und Spielplan für Zuschauer freigeben. */
   publishTournament(tid: string): Promise<void>;
   /**

@@ -15,6 +15,8 @@ import type { AdminCtx } from '../AdminTournament';
 import { stageCardProps } from './cardProps';
 import { buildStageModel, groupByTime, isDecided, stageById, useFieldOrder, type StageModel } from './model';
 import { StageNotices } from './StageNotices';
+import { CompactNotice, GroupLossNotice } from './Compact';
+import { ReshapeDialog } from './ReshapeDialog';
 import './stages.css';
 
 export function StageLive({ ctx }: { ctx: AdminCtx }) {
@@ -26,6 +28,7 @@ export function StageLive({ ctx }: { ctx: AdminCtx }) {
   const fieldOrder = useFieldOrder(ctx.data.fields);
   const [quick, setQuick] = useState(false);
   const [shiftOpen, setShiftOpen] = useState(false);
+  const [reshapeOpen, setReshapeOpen] = useState(false);
   const [showDone, setShowDone] = useState(false);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +89,12 @@ export function StageLive({ ctx }: { ctx: AdminCtx }) {
           <Icon name="clock" />
           Zeitplan verschieben
         </button>
+        {model.format.stages[0]?.kind === 'groups' && !finished && (
+          <button type="button" className="btn" onClick={() => setReshapeOpen(true)}>
+            <Icon name="shuffle" />
+            Turnier umstellen
+          </button>
+        )}
         <span className="spacer" />
         <Seg
           label="Eingabe"
@@ -110,6 +119,8 @@ export function StageLive({ ctx }: { ctx: AdminCtx }) {
         </Notice>
       )}
       <StageNotices ctx={ctx} model={model} />
+      <GroupLossNotice ctx={ctx} onReshape={() => setReshapeOpen(true)} />
+      <CompactNotice ctx={ctx} />
       <IssueNotice ctx={ctx} model={model} />
 
       {quick && <span className="small-text">Schnellmodus: Ergebnis eintragen und mit einem Klick beenden.</span>}
@@ -145,6 +156,7 @@ export function StageLive({ ctx }: { ctx: AdminCtx }) {
       )}
 
       {shiftOpen && <ShiftDialog ctx={ctx} onClose={() => setShiftOpen(false)} />}
+      {reshapeOpen && <ReshapeDialog data={data} onClose={() => setReshapeOpen(false)} />}
     </>
   );
 }

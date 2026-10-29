@@ -59,6 +59,16 @@ Stand 29.10.2026, mit Phil abgestimmt. Ausführliche Beschreibung: Claude Doc �
 - Zurückgezogenes Team in der Gruppe: Regel von heute (alle seine Spiele zählen für niemanden). Qualifiziertes
   Team zieht vor seinem Endrunden-Spiel zurück: Turnierleitung wählt im Moment „Gegner kampflos weiter“ oder
   „Nächstbester rückt nach“.
+- Haken „ist da“ je Team (Teams-Reiter, nur Turnierleitung, im Verlauf). Rückt ein Spiel nach vorne und ein
+  Team ohne Haken spielt dadurch früher als sein erstes geplantes Spiel: nur Hinweis „vielleicht noch nicht da“.
+- Ausfall in der Gruppenphase: Hinweis „Plan straffen“ mit Vorschau (Spiele, alte und neue Endzeit). Spätere
+  Spiele rücken in die Lücken, Teams mit „ist da“ zuerst; wenn möglich ein Spiel Pause, Pausen nie extra
+  eingebaut (kürzere Pause nur, wenn das Turnier dadurch früher fertig wird). Spätere Phasen rücken mit nach vorne.
+  Handänderungen und angepfiffene Spiele bleiben. Fehlt dadurch einer Endrunde ein Team, sagt die Seite das und
+  führt zum Anpassen (Dreiergruppe oder streichen).
+- „Dreiergruppe spielt länger“ (Haken im Straffen-Fenster, standardmäßig aus): nur wenn jedes offene Spiel der
+  Gruppe in die frei gewordene Zeit auf seinem Feld passt; Vorschlag 1,5-fache Spielzeit. Takt und Pausen aller
+  anderen bleiben, Wertung unverändert. Längere Spielzeit steht im Spielplan, bei Helfern und Zuschauern.
 
 ## Zuschauerseite
 

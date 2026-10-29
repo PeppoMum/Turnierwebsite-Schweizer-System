@@ -271,6 +271,8 @@ export function filledFinalsFrom(d: TournamentData, stageId: string): Match[] {
   return d.matches.filter((m) => (m.teamAId && fromStage(m.slotA)) || (m.teamBId && fromStage(m.slotB)));
 }
 
+export { durationNote, standardMinutes } from '../../../format';
+
 // ---- Zeitblöcke ----
 
 const DONE = new Set<Match['status']>(['completed', 'not_played', 'cancelled']);

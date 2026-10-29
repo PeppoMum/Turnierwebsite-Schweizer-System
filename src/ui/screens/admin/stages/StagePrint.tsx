@@ -37,7 +37,7 @@ export function StagePrint({ data }: { data: TournamentData }) {
   const ofTeam = (m: Match) => !teamId || m.teamAId === teamId || m.teamBId === teamId;
   const matches = data.matches.filter((m) => m.stageId && (!stageId || m.stageId === stageId) && ofTeam(m));
   const score = (m: Match) => {
-    if (m.decidedBy === 'walkover') return 'kampflos';
+    if (m.decidedBy === 'walkover') return resultText(m, format);
     if (m.status === 'not_played') return 'n. a.';
     if (scores === 'blank') return '___ : ___';
     return resultText(m, format) || '–';

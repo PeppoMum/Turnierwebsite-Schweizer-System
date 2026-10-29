@@ -62,3 +62,4 @@ export {
   type LongerGroupOption,
   type MatchPlacement,
 } from './compact';
+export { laterSwapOptions, type LaterSwapOption, type LaterSwapResult } from './late';

@@ -69,6 +69,13 @@ Stand 29.10.2026, mit Phil abgestimmt. Ausführliche Beschreibung: Claude Doc �
 - „Dreiergruppe spielt länger“ (Haken im Straffen-Fenster, standardmäßig aus): nur wenn jedes offene Spiel der
   Gruppe in die frei gewordene Zeit auf seinem Feld passt; Vorschlag 1,5-fache Spielzeit. Takt und Pausen aller
   anderen bleiben, Wertung unverändert. Längere Spielzeit steht im Spielplan, bei Helfern und Zuschauern.
+- Team kommt zu spät (Knopf „Team fehlt“ an jedem noch nicht beendeten Gruppenspiel, nur Turnierleitung):
+  entweder „Spiel nach hinten tauschen“ (Vorschläge: spätere, noch nicht angepfiffene Spiele derselben Gruppe
+  ohne das späte Team; nie ein Team zweimal gleichzeitig; Hinweis, wenn ein Team dadurch vor seinem bisher ersten
+  Spiel dran ist; src/domain/schedule/late.ts) oder „Kampflos werten“: 2:0 für den Gegner, das Team bleibt im
+  Turnier, zählt in der Tabelle wie ein normales Ergebnis (Entscheidung Phil, 29.10.2026). Gespeichert als
+  beendetes Spiel mit Toren und `decidedBy: 'walkover'`/`walkoverWinner` (src/domain/groups/walkover.ts),
+  Anzeige „2:0 (kampflos)“. „Korrigieren“ setzt es auf „geplant“ zurück; beides im Verlauf rückgängig machbar.
 
 ## Zuschauerseite
 

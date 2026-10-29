@@ -4,6 +4,7 @@ import { describeHistory } from './history';
 import { MockTournamentStore } from './mockStore';
 import type { WizardDraft } from './types';
 import { undoChecks } from './undo';
+import { buildStageModel, resultText } from '../screens/admin/stages/model';
 
 const TID = 'sommercup';
 
@@ -250,6 +251,48 @@ describe('Baukasten in der Datenhaltung', () => {
     expect(data(s).lots).toHaveLength(1);
     expect(data(s).lots![0]!.order[0]).toBe(a![1]);
     expect(s.getPublic(TID)!.lots).toHaveLength(1);
+  });
+
+  it('Team kommt zu spät: Spiel kampflos 2:0 werten, zählt in der Tabelle, Team bleibt, rückgängig machbar', async () => {
+    const s = store();
+    // Im Beispiel läuft nur noch das letzte Gruppenspiel; zurück auf „geplant“, als wäre noch nicht angepfiffen.
+    const open = data(s).matches.find((m) => m.stageId && !m.matchKey && m.status === 'live')!;
+    await s.setMatchStatus(TID, open.id, 'scheduled');
+    const row = (teamId: string) =>
+      buildStageModel(data(s))!.standings[open.stageId!]!.tables[open.groupIndex!]!.rows.find((r) => r.teamId === teamId)!;
+    const before = row(open.teamBId);
+
+    await s.recordWalkover(TID, open.id, 'B');
+    const m = data(s).matches.find((x) => x.id === open.id)!;
+    expect(m).toMatchObject({ status: 'completed', goalsA: 0, goalsB: 2, decidedBy: 'walkover', walkoverWinner: 'B' });
+    expect(row(open.teamBId)).toMatchObject({
+      played: before.played + 1,
+      won: before.won + 1,
+      points: before.points + 3,
+      goalsFor: before.goalsFor + 2,
+    });
+    expect(data(s).teams.find((t) => t.id === open.teamAId)!.status).toBe('active');
+    expect(resultText(m, data(s).tournament.format)).toBe('0:2 (kampflos)');
+    expect(s.getPublic(TID)!.matches.find((x) => x.id === open.id)).toMatchObject({ goalsA: 0, goalsB: 2, decidedBy: 'walkover' });
+
+    const entries = await s.loadHistory(TID);
+    expect(describeHistory(entries, data(s))[0]!.text).toMatch(/^Kampflos gewertet: .* 0:2 \(kampflos\), Sieg für /);
+    expect(undoChecks(entries, data(s)).get(entries[0]!.id)).toMatchObject({ ok: true });
+    await s.undoHistory(TID, entries[0]!);
+    expect(data(s).matches.find((x) => x.id === open.id)).toMatchObject({ status: 'scheduled', goalsA: undefined, decidedBy: undefined, walkoverWinner: undefined });
+    expect(row(open.teamBId)).toEqual(before);
+
+    // „Korrigieren“ setzt ein kampflos gewertetes Spiel auf „geplant“ zurück.
+    await s.recordWalkover(TID, open.id, 'A');
+    await s.reopenMatch(TID, open.id);
+    expect(data(s).matches.find((x) => x.id === open.id)).toMatchObject({ status: 'scheduled', goalsA: undefined, goalsB: undefined, decidedBy: undefined });
+    // Und das Wieder-Öffnen lässt sich zurücknehmen: wieder 2:0 kampflos.
+    await s.undoHistory(TID, await latest(s));
+    expect(data(s).matches.find((x) => x.id === open.id)).toMatchObject({ status: 'completed', goalsA: 2, goalsB: 0, decidedBy: 'walkover', walkoverWinner: 'A' });
+
+    await expect(s.recordWalkover(TID, open.id, 'B')).rejects.toThrow(/schon vorbei/);
+    await expect(s.recordWalkover(TID, match(s, 'F').id, 'A')).rejects.toThrow(/Endrunde/);
+    await expect(s.recordWalkover('herbstcup', data(s).matches[0]!.id, 'A')).rejects.toThrow(/Gruppen oder Endrunde/);
   });
 
   it('Schweizer-System-Turniere bleiben unberührt', async () => {

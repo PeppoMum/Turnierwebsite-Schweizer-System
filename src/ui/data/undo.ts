@@ -20,7 +20,7 @@ export interface MatchTarget {
   goalsB: number | null;
   notPlayedReason: NotPlayedReason | null;
   /** Nur bei Baukasten-Spielen: wie das Spiel entschieden war. */
-  decided?: { decidedBy: Match['decidedBy'] | null; penaltiesA: number | null; penaltiesB: number | null };
+  decided?: { decidedBy: Match['decidedBy'] | null; penaltiesA: number | null; penaltiesB: number | null; walkoverWinner?: 'A' | 'B' | null };
 }
 
 export interface DetailsPatch {
@@ -64,6 +64,7 @@ const MATCH_ACTIONS = new Set([
   'match.reopen',
   'match.reset',
   'match.undo',
+  'match.walkover',
 ]);
 const LAYOUT_ACTIONS = new Set([
   'match.swap',
@@ -126,7 +127,7 @@ export function matchLabelOf(data: TournamentData, id: string): string {
 }
 
 /** Spielstand in Worten, z. B. „beendet mit 2:1“. */
-export function matchStateText(s: { status?: unknown; goalsA?: unknown; goalsB?: unknown }): string {
+export function matchStateText(s: { status?: unknown; goalsA?: unknown; goalsB?: unknown; decidedBy?: unknown }): string {
   const a = num(s.goalsA);
   const b = num(s.goalsB);
   const score = a !== null && b !== null ? `${a}:${b}` : null;
@@ -136,7 +137,7 @@ export function matchStateText(s: { status?: unknown; goalsA?: unknown; goalsB?:
     case 'live':
       return score ? `läuft, Stand ${score}` : 'läuft';
     case 'completed':
-      return `beendet mit ${score ?? '?'}`;
+      return `beendet mit ${score ?? '?'}${s.decidedBy === 'walkover' ? ' (kampflos)' : ''}`;
     case 'not_played':
       return 'nicht ausgetragen';
     default:
@@ -176,7 +177,14 @@ function checkMatch(e: HistoryEntry, data: TournamentData): UndoCheck | null {
     goalsB: status === 'completed' || status === 'live' ? num(before.goalsB) : null,
     notPlayedReason: status === 'not_played' ? ((str(before.notPlayedReason) as NotPlayedReason | undefined) ?? 'other') : null,
     ...('decidedBy' in before
-      ? { decided: { decidedBy: (str(before.decidedBy) as Match['decidedBy']) ?? null, penaltiesA: num(before.penaltiesA), penaltiesB: num(before.penaltiesB) } }
+      ? {
+          decided: {
+            decidedBy: (str(before.decidedBy) as Match['decidedBy']) ?? null,
+            penaltiesA: num(before.penaltiesA),
+            penaltiesB: num(before.penaltiesB),
+            walkoverWinner: before.walkoverWinner === 'A' || before.walkoverWinner === 'B' ? before.walkoverWinner : null,
+          },
+        }
       : {}),
   };
   if (target.status === 'completed' && (target.goalsA === null || target.goalsB === null)) return null;
@@ -184,7 +192,8 @@ function checkMatch(e: HistoryEntry, data: TournamentData): UndoCheck | null {
     !target.decided ||
     (target.decided.decidedBy === (m.decidedBy ?? null) &&
       target.decided.penaltiesA === (m.penaltiesA ?? null) &&
-      target.decided.penaltiesB === (m.penaltiesB ?? null));
+      target.decided.penaltiesB === (m.penaltiesB ?? null) &&
+      (target.decided.walkoverWinner ?? null) === (m.walkoverWinner ?? null));
   if (target.status === m.status && target.goalsA === (m.goalsA ?? null) && target.goalsB === (m.goalsB ?? null) && sameDecision) {
     return null;
   }

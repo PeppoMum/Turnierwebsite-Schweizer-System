@@ -240,6 +240,7 @@ export function TimeSlot({
             canCorrect={canCorrect}
             {...extra}
             correctWarning={canCorrect === false ? null : extra?.correctWarning}
+            lateTeamData={canCorrect === false ? undefined : ctx.data}
           />
           );
         })}

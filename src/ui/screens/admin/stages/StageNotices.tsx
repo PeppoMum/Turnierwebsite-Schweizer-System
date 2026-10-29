@@ -1,5 +1,5 @@
-// Hinweise an die Turnierleitung: Endrunde füllen (Vorschlag bestätigen), Korrekturen, die nicht mehr
-// greifen, und Lose bei Gleichstand. Eingetragen wird nie von selbst (docs/turnier-baukasten.md).
+// Hinweise an die Turnierleitung: Korrekturen an der Endrunde (bestätigen), Korrekturen, die nicht mehr
+// greifen, und Lose bei Gleichstand. Neue Teams trägt AutoFill ohne Klick ein (docs/turnier-baukasten.md).
 import { useState } from 'react';
 import { useService } from '../../../data/context';
 import { href } from '../../../router';
@@ -16,7 +16,7 @@ export function StageNotices({ ctx, model }: { ctx: AdminCtx; model: StageModel 
       {model.openLots.map((lot) => (
         <LotNotice key={`${lot.stageId}|${lot.groupIndex ?? ''}|${lot.place ?? ''}|${lot.teamIds.join(',')}`} ctx={ctx} model={model} lot={lot} />
       ))}
-      {changes.length > 0 && <FillNotice ctx={ctx} model={model} />}
+      {changes.some((c) => c.fromTeamId) && <FillNotice ctx={ctx} model={model} />}
       {locked.length > 0 && (
         <Notice tone="info" title="Gespielt ist gespielt">
           Nach einer Korrektur würden heute andere Teams in{' '}
@@ -32,7 +32,6 @@ function FillNotice({ ctx, model }: { ctx: AdminCtx; model: StageModel }) {
   const service = useService();
   const { data } = ctx;
   const changes = model.resolution.changes;
-  const corrections = changes.filter((c) => c.fromTeamId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirm = async () => {
@@ -50,12 +49,8 @@ function FillNotice({ ctx, model }: { ctx: AdminCtx; model: StageModel }) {
   };
   return (
     <div className="notice hint no-close stage-fill" role="status">
-      <b>{corrections.length > 0 ? 'Die Endrunde ändert sich durch eine Korrektur' : 'Endrunde füllen'}</b>
-      <span>
-        {corrections.length > 0
-          ? 'Nach dem neuen Stand kommen andere Teams weiter. Bitte prüf die Änderung und bestätige sie.'
-          : 'Diese Teams stehen jetzt fest. Mit „Eintragen“ sehen alle sie im Spielplan. Danach kannst du noch tauschen.'}
-      </span>
+      <b>Die Endrunde ändert sich durch eine Korrektur</b>
+      <span>Nach dem neuen Stand kommen andere Teams weiter. Bitte prüf die Änderung und bestätige sie.</span>
       <ul className="stage-fill-list">
         {changes.map((c) => (
           <li key={`${c.matchId}${c.side}`}>{changeText(c, data, model.format, ctx.teamName)}</li>
@@ -64,7 +59,7 @@ function FillNotice({ ctx, model }: { ctx: AdminCtx; model: StageModel }) {
       {error && <span className="field-error">{error}</span>}
       <span className="row">
         <button type="button" className="btn pri" disabled={busy} onClick={confirm}>
-          {busy ? 'Trägt ein …' : corrections.length > 0 ? 'Änderung bestätigen' : 'Eintragen'}
+          {busy ? 'Trägt ein …' : 'Änderung bestätigen'}
         </button>
         <a className="btn" href={href({ name: 'admin', id: data.tournament.id, tab: 'spielplan' })}>
           <Icon name="shuffle" />

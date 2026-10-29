@@ -13,6 +13,7 @@ import { HistoryTab } from './HistoryTab';
 import { StageLive } from './stages/StageLive';
 import { StageSchedule } from './stages/StageSchedule';
 import { StageTables } from './stages/StageTables';
+import { AutoFill } from './stages/AutoFill';
 
 export interface AdminCtx {
   data: TournamentData;
@@ -63,6 +64,7 @@ export function AdminTournament({ data, tab }: { data: TournamentData; tab: Admi
         </div>
         <TournamentStatusPill status={t.status} />
       </div>
+      {stages && t.status !== 'draft' && <AutoFill ctx={ctx} />}
       {tab === 'live' && (stages ? <StageLive ctx={ctx} /> : <LiveTab ctx={ctx} />)}
       {tab === 'spielplan' && (stages ? <StageSchedule ctx={ctx} /> : <ScheduleTab ctx={ctx} />)}
       {tab === 'tabelle' && (stages ? <StageTables ctx={ctx} /> : <StandingsSection ctx={ctx} />)}

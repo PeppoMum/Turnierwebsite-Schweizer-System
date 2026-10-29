@@ -51,6 +51,16 @@ describe('resolveFormat', () => {
     expect(res.changes.filter((c) => c.matchId === match('SF1').id)).toEqual([{ matchId: match('SF1').id, side: 'A', fromTeamId: null, toTeamId: 'A1' }]);
   });
 
+  it('lässt einen Platz vorläufig, solange in der fertigen Gruppe noch ein Los fehlt', () => {
+    const st = standings('vorrunde', groupTeams(2, 4), [true, true]);
+    const { input, match } = setup('t8', { ...st, tables: [{ openLots: [['A1', 'A2']] }, { openLots: [] }] } as StageStandings);
+    const res = resolveFormat(input);
+    const sf1 = res.matches.find((m) => m.matchKey === 'SF1')!;
+    expect(sf1.a).toEqual({ teamId: 'A1', provisional: true });
+    expect(sf1.b).toEqual({ teamId: 'B2', provisional: false });
+    expect(res.changes.filter((c) => c.matchId === match('SF1').id).map((c) => c.toTeamId)).toEqual(['B2']);
+  });
+
   it('füllt beste Dritte erst, wenn alle Gruppen fertig sind, und meldet fehlende Lose', () => {
     const g = groupTeams(3, 4);
     const stats = { A3: { points: 3, played: 3 }, B3: { points: 3, played: 3 }, C3: { points: 1, played: 3 } };

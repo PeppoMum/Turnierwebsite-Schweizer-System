@@ -1,17 +1,15 @@
 // Admin-Live-Cockpit (Spezifikation §4.3).
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { Match } from '../../../domain';
 import { useService } from '../../data/context';
 import type { PairingPreview } from '../../data/types';
 import { useNow } from '../../hooks';
-import { formatMinutes, formatQuotient, formatTime } from '../../format';
-import { formatQuotient as formatRatioQ } from '../../../domain/scoring/format';
+import { formatMinutes, formatTime } from '../../format';
 import { href, publicUrl } from '../../router';
-import { computeStandings } from '../../data/logic';
-import { zonedLocalToISO } from '../../../domain/schedule';
 import { Icon } from '../../components/Icon';
 import { CopyButton, Dialog, EmptyState, Kpi, Notice, Seg, TeamName } from '../../components/ui';
 import { MatchCard } from './MatchCard';
+import { RoundPreviewDialog } from './RoundPreview';
 import type { AdminCtx } from './AdminTournament';
 
 export function groupByWave(matches: Match[]): Array<{ wave: number; startISO?: string; matches: Match[] }> {
@@ -48,14 +46,17 @@ export function LiveTab({ ctx }: { ctx: AdminCtx }) {
 
   if (!round) {
     return (
-      <EmptyState
-        text={t.status === 'draft' ? 'Das Turnier ist noch ein Entwurf. Lose die erste Runde aus, um es zu starten.' : 'Noch keine Runde veröffentlicht.'}
-        action={
-          <button type="button" className="btn pri" onClick={() => setPreview(service.previewNextRound(t.id))}>
-            Erste Runde auslosen
-          </button>
-        }
-      />
+      <>
+        <EmptyState
+          text={t.status === 'draft' ? 'Das Turnier ist noch ein Entwurf. Lose die erste Runde aus, um es zu starten.' : 'Noch keine Runde veröffentlicht.'}
+          action={
+            <button type="button" className="btn pri" onClick={() => setPreview(service.previewNextRound(t.id))}>
+              Erste Runde auslosen
+            </button>
+          }
+        />
+        {preview && <RoundPreviewDialog ctx={ctx} preview={preview} setPreview={setPreview} onClose={() => setPreview(null)} />}
+      </>
     );
   }
 
@@ -309,105 +310,6 @@ export function ShiftDialog({ ctx, onClose }: { ctx: AdminCtx; onClose: () => vo
         >
           {affected.length} Spiele verschieben
         </button>
-        <button type="button" className="btn" onClick={onClose}>
-          Abbrechen
-        </button>
-      </div>
-    </Dialog>
-  );
-}
-
-function RoundPreviewDialog({
-  ctx,
-  preview,
-  setPreview,
-  onClose,
-}: {
-  ctx: AdminCtx;
-  preview: PairingPreview;
-  setPreview: (p: PairingPreview) => void;
-  onClose: () => void;
-}) {
-  const service = useService();
-  const t = ctx.data.tournament;
-  const standings = useMemo(() => computeStandings(ctx.data), [ctx.data]);
-  const q = new Map(standings.map((r) => [r.teamId, r]));
-  const fmtQ = (r?: { points: number; played: number }) => (r ? formatRatioQ(r.points, r.played) : '–');
-  const [time, setTime] = useState(() => {
-    const lastEnd = ctx.data.matches
-      .filter((m) => m.startISO)
-      .reduce((max, m) => Math.max(max, new Date(m.startISO!).getTime() + m.durationMinutes * 60000), 0);
-    const suggested = new Date(Math.max(lastEnd + t.schedule.roundBreakMinutes * 60000, Date.now() + 5 * 60000));
-    return formatTime(suggested.toISOString(), t.timeZone);
-  });
-  const [busy, setBusy] = useState(false);
-  const d = preview.diagnostics;
-
-  const [error, setError] = useState<string | null>(null);
-  const publish = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      // Anstoß in Ortszeit des Turniers, nicht des Geräts.
-      await service.publishRound(t.id, preview, zonedLocalToISO(t.localDate, time, t.timeZone));
-      onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Die Runde ließ sich nicht veröffentlichen.');
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Dialog title={`Vorschau Runde ${preview.roundNumber}`} onClose={onClose}>
-      <div className="row">
-        <span className="pill a">{preview.mode === 'draw' ? 'Auslosung' : 'Nach Quotient'}</span>
-        <span className={d.repeats > 0 ? 'pill y' : 'pill g'}>
-          {d.repeats === 0 ? 'Keine Wiederholung' : `${d.repeats} ${d.repeats === 1 ? 'Wiederholung' : 'Wiederholungen'}`}
-        </span>
-        {preview.mode === 'swiss' && <span className="pill">Größter Abstand {formatQuotient(d.maxQuotientGap, 2)}</span>}
-      </div>
-      {d.warnings.map((w) => (
-        <Notice key={w} tone="hint" title={w} />
-      ))}
-      <div className="list">
-        {preview.pairs.map((p) => (
-          <div key={p.teamAId} className="list-row" style={{ flexWrap: 'wrap' }}>
-            <span className="grow" style={{ display: 'grid', gap: 4 }}>
-              <span className="row" style={{ flexWrap: 'nowrap', justifyContent: 'space-between' }}>
-                <TeamName name={ctx.teamName(p.teamAId)} logo={ctx.teamLogo(p.teamAId)} />
-                <span className="small-text">{fmtQ(q.get(p.teamAId))}</span>
-              </span>
-              <span className="row" style={{ flexWrap: 'nowrap', justifyContent: 'space-between' }}>
-                <TeamName name={ctx.teamName(p.teamBId)} logo={ctx.teamLogo(p.teamBId)} />
-                <span className="small-text">{fmtQ(q.get(p.teamBId))}</span>
-              </span>
-            </span>
-            {p.repeat > 0 && <span className="pill y">{p.repeat + 1}. Duell</span>}
-          </div>
-        ))}
-        {preview.byeTeamId && (
-          <div className="list-row">
-            <span className="pill">Freilos</span>
-            <span className="grow">{ctx.teamName(preview.byeTeamId)}</span>
-          </div>
-        )}
-      </div>
-      <div className="inline-field">
-        <span className="label">Anstoß</span>
-        <input className="input" type="time" aria-label="Anstoß der Runde" value={time} onChange={(e) => setTime(e.target.value)} style={{ width: 130 }} />
-      </div>
-      {error && <Notice tone="warn" title="Nicht veröffentlicht">{error}</Notice>}
-      <span className="small-text">Erst mit „Runde veröffentlichen“ sehen Zuschauer die Paarungen. Danach ändern sie sich nicht mehr von selbst.</span>
-      <div className="row">
-        <button type="button" className="btn pri" disabled={busy} onClick={publish}>
-          {busy ? 'Speichert …' : 'Runde veröffentlichen'}
-        </button>
-        {preview.mode === 'draw' && (
-          <button type="button" className="btn" onClick={() => setPreview(service.previewNextRound(t.id, Date.now()))}>
-            <Icon name="shuffle" />
-            Neu auslosen
-          </button>
-        )}
         <button type="button" className="btn" onClick={onClose}>
           Abbrechen
         </button>

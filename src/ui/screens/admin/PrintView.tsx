@@ -9,6 +9,7 @@ import { formatDateShort, formatTime } from '../../format';
 import { href } from '../../router';
 import { Icon } from '../../components/Icon';
 import { groupByWave } from './LiveTab';
+import { StagePrint } from './stages/StagePrint';
 import '../../styles/print.css';
 
 type Scores = 'with' | 'blank';
@@ -21,6 +22,10 @@ function scoreText(m: Match, scores: Scores): string {
 }
 
 export function PrintView({ data }: { data: TournamentData }) {
+  return data.tournament.format ? <StagePrint data={data} /> : <SwissPrint data={data} />;
+}
+
+function SwissPrint({ data }: { data: TournamentData }) {
   const t = data.tournament;
   const rounds = useMemo(() => [...data.rounds].sort((a, b) => a.number - b.number), [data.rounds]);
   const teams = useMemo(() => [...data.teams].filter((x) => x.status !== 'inactive').sort((a, b) => a.name.localeCompare(b.name, 'de')), [data.teams]);

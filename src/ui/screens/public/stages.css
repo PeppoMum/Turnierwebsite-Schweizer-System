@@ -141,6 +141,11 @@
   overflow-wrap: anywhere;
 }
 
+.st-gt .st-tname .team .name {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .st-gt .st-pts {
   font-weight: 800;
 }
@@ -204,6 +209,15 @@
 
 .st-gm-b {
   text-align: right;
+  justify-content: flex-end;
+}
+
+.st-gm-a,
+.st-gm-b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .st-fav {
@@ -658,4 +672,25 @@ span.st-preview {
   font-size: 11px;
   font-weight: 600;
   color: var(--o);
+}
+
+/* Vereinswappen in Endrunde und Übersicht */
+.st-place .crest {
+  flex: 0 0 auto;
+}
+
+.st-place .team .name {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.st-ov-row .crest,
+.st-mini-r .crest,
+.st-gm .crest {
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
+.st-gm .crest {
+  margin-right: 0;
 }

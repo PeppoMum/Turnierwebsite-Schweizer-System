@@ -6,9 +6,9 @@ import type { TournamentData, WizardDraft } from '../../data/types';
 import { formatDateShort, formatMinutes, visibilityHelp, visibilityLabel } from '../../format';
 import { publicUrl } from '../../router';
 import { Icon } from '../../components/Icon';
-import { ImagePicker } from '../../components/ImagePicker';
+import { crestChoices, ImagePicker } from '../../components/ImagePicker';
 import { ByeInfo, PAIRING_MODE_LABEL, PairingModeInfo, QuotientInfo, TIE_BREAKER_LABEL, TieBreakerOrder } from '../../components/rules';
-import { Field, Notice, QrCode, Seg, TeamName } from '../../components/ui';
+import { Crest, Dialog, Field, Notice, QrCode, Seg, TeamName } from '../../components/ui';
 import type { StepErrors } from './validate';
 
 interface StepProps {
@@ -129,6 +129,8 @@ export function StepAppearance({ draft, update, errors }: StepProps) {
 export function StepParticipants({ draft, update, errors, swiss = true }: StepProps & { swiss?: boolean }) {
   const [importText, setImportText] = useState('');
   const [showImport, setShowImport] = useState(false);
+  const [crestFor, setCrestFor] = useState<string | null>(null);
+  const crestTeam = draft.teams.find((t) => t.id === crestFor);
   const active = draft.teams.filter((t) => t.active && t.name.trim()).length;
   const setTeam = (i: number, patch: Partial<WizardDraft['teams'][number]>) =>
     update({ teams: draft.teams.map((t, j) => (j === i ? { ...t, ...patch } : t)) });
@@ -147,6 +149,15 @@ export function StepParticipants({ draft, update, errors, swiss = true }: StepPr
             <span className="small-text" style={{ width: 22, textAlign: 'right' }}>
               {i + 1}
             </span>
+            <button
+              type="button"
+              className="btn crest-choice"
+              aria-label={t.logo ? `Wappen von ${t.name || `Team ${i + 1}`} ändern` : `Wappen für ${t.name || `Team ${i + 1}`} hochladen`}
+              title={t.logo ? 'Wappen ändern' : 'Wappen hochladen'}
+              onClick={() => setCrestFor(t.id)}
+            >
+              {t.logo ? <Crest name={t.name || '?'} logo={t.logo} /> : <span className="crest crest-add" aria-hidden><Icon name="plus" /></span>}
+            </button>
             <input className="input grow" aria-label={`Name Team ${i + 1}`} value={t.name} onChange={(e) => setTeam(i, { name: e.target.value })} />
             <label className="check phone-hide" style={{ minHeight: 0 }}>
               <input type="checkbox" checked={t.active} onChange={(e) => setTeam(i, { active: e.target.checked })} />
@@ -195,7 +206,23 @@ export function StepParticipants({ draft, update, errors, swiss = true }: StepPr
           </div>
         </div>
       )}
-      <p className="small-text">Logos für Teams kannst du nach dem Anlegen unter „Teams“ hinzufügen.</p>
+      <p className="small-text">Mit dem Feld vor dem Namen lädst du das Vereinswappen hoch. Das geht auch später noch unter „Teams“.</p>
+      {crestTeam && (
+        <Dialog title={`Wappen für ${crestTeam.name || 'Team'}`} onClose={() => setCrestFor(null)}>
+          <ImagePicker
+            label="Vereinswappen"
+            name={crestTeam.name}
+            value={crestTeam.logo}
+            onChange={(logo) => update({ teams: draft.teams.map((t) => (t.id === crestTeam.id ? { ...t, logo } : t)) })}
+            choices={crestChoices(draft.teams.filter((t) => t.id !== crestTeam.id))}
+          />
+          <div className="row">
+            <button type="button" className="btn pri" onClick={() => setCrestFor(null)}>
+              Fertig
+            </button>
+          </div>
+        </Dialog>
+      )}
     </>
   );
 }

@@ -179,6 +179,17 @@ interface PublicEntry {
 }
 
 /** Ortszeit des Turniers als Zeitpunkt (wie im mockStore). */
+/** Wird das Bild noch von etwas anderem als der Mannschaft `exceptTeamId` benutzt? */
+function assetInUse(d: TournamentData, assetId: string, exceptTeamId: string): boolean {
+  const t = d.tournament;
+  return (
+    t.organizerAssetId === assetId ||
+    t.eventAssetId === assetId ||
+    d.sponsors.some((s) => s.assetId === assetId) ||
+    d.teams.some((tm) => tm.id !== exceptTeamId && tm.logoAssetId === assetId)
+  );
+}
+
 function localStartISO(localDate: string, time: string, timeZone: string): string {
   return zonedLocalToISO(localDate, time || '09:00', timeZone);
 }
@@ -726,8 +737,17 @@ export class FirestoreTournamentStore implements TournamentService {
       { tournamentId: requested },
     );
 
-    const asset = async (dataUrl: string | undefined, kind: AssetKind) =>
-      dataUrl ? saveAsset(db, tid, await toPreparedAsset(dataUrl), kind, { isPublic: true }) : undefined;
+    // Gleiches Bild (z. B. Wappen mehrerer Mannschaften eines Vereins) nur einmal speichern.
+    const saved = new Map<string, Promise<string>>();
+    const asset = (dataUrl: string | undefined, kind: AssetKind) => {
+      if (!dataUrl) return Promise.resolve(undefined);
+      let id = saved.get(dataUrl);
+      if (!id) {
+        id = toPreparedAsset(dataUrl).then((a) => saveAsset(db, tid, a, kind, { isPublic: true }));
+        saved.set(dataUrl, id);
+      }
+      return id;
+    };
     const now = new Date().toISOString();
     const fields: Field[] = draft.fields.map((f, i) => ({
       id: `${tid}-f${i + 1}`,
@@ -1042,6 +1062,9 @@ export class FirestoreTournamentStore implements TournamentService {
   private async keepOrSaveAsset(d: TournamentData, assetId: string | undefined, next: string | undefined, kind: AssetKind) {
     if (!next) return undefined;
     if (assetId && d.assets[assetId] === next) return assetId;
+    // Schon vorhandenes gleiches Bild (Wappen einer anderen Mannschaft) mitbenutzen.
+    const same = Object.keys(d.assets).find((id) => d.assets[id] === next);
+    if (same) return same;
     return saveAsset(this.db, d.tournament.id, await toPreparedAsset(next), kind, { isPublic: true });
   }
 
@@ -1094,7 +1117,8 @@ export class FirestoreTournamentStore implements TournamentService {
     const dropped = [t.organizerAssetId, t.eventAssetId, ...d.sponsors.map((s) => s.assetId)].filter(
       (id): id is string => !!id && !used.has(id),
     );
-    await Promise.all(dropped.map((id) => deleteAsset(this.db, tid, id).catch(() => undefined)));
+    const forTeams = new Set(d.teams.map((tm) => tm.logoAssetId));
+    await Promise.all(dropped.filter((id) => !forTeams.has(id)).map((id) => deleteAsset(this.db, tid, id).catch(() => undefined)));
   }
 
   saveTeam(tid: string, teamId: string | null, team: TeamEdit): Promise<void> {
@@ -1132,7 +1156,7 @@ export class FirestoreTournamentStore implements TournamentService {
       const after = { ...d, teams: [...d.teams, next] };
       await publishStandings(this.db, tid, computeStandings(after), d.tournament.currentRound, d.resultsRevision).catch(() => undefined);
     }
-    if (existing?.logoAssetId && existing.logoAssetId !== logoAssetId) {
+    if (existing?.logoAssetId && existing.logoAssetId !== logoAssetId && !assetInUse(d, existing.logoAssetId, existing.id)) {
       await deleteAsset(this.db, tid, existing.logoAssetId).catch(() => undefined);
     }
   }

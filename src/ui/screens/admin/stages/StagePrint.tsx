@@ -10,6 +10,7 @@ import { Icon } from '../../../components/Icon';
 import { finalsRounds } from './StageTables';
 import { buildStageModel, groupByTime, groupName, isFinalsStage, matchTitle, placementText, resultText, sideText, winnerSide } from './model';
 import '../../../styles/print.css';
+import { PrintCrest, teamCrest } from '../printCrest';
 
 type Scores = 'with' | 'blank';
 
@@ -29,6 +30,7 @@ export function StagePrint({ data }: { data: TournamentData }) {
   const format = model.format;
 
   const name = (id: string) => data.teams.find((x) => x.id === id)?.name ?? 'Unbekannt';
+  const teamMark = (id: string) => <PrintCrest logo={teamCrest(data, id)} />;
   const fieldName = (id?: string) => (id ? (data.fields.find((f) => f.id === id)?.name ?? 'Feld') : '–');
   const fieldOrder = (id?: string) => data.fields.find((f) => f.id === id)?.order ?? 99;
   const logo = (assetId?: string) => (assetId ? data.assets[assetId] : undefined);
@@ -142,9 +144,15 @@ export function StagePrint({ data }: { data: TournamentData }) {
                       <td>{formatTime(m.startISO, t.timeZone)}</td>
                       <td>{fieldName(m.fieldId)}</td>
                       <td className="l print-small">{matchTitle(m, format)}</td>
-                      <td className={`l${bold(m, 'A') ? ' b' : ''}${m.teamAId ? '' : ' print-slot'}`}>{sideText(m, 'A', format, name)}</td>
+                      <td className={`l${bold(m, 'A') ? ' b' : ''}${m.teamAId ? '' : ' print-slot'}`}>
+                        {teamMark(m.teamAId)}
+                        {sideText(m, 'A', format, name)}
+                      </td>
                       <td className="score">{score(m)}</td>
-                      <td className={`l${bold(m, 'B') ? ' b' : ''}${m.teamBId ? '' : ' print-slot'}`}>{sideText(m, 'B', format, name)}</td>
+                      <td className={`l${bold(m, 'B') ? ' b' : ''}${m.teamBId ? '' : ' print-slot'}`}>
+                        {teamMark(m.teamBId)}
+                        {sideText(m, 'B', format, name)}
+                      </td>
                     </tr>
                   )),
                 )}
@@ -185,7 +193,10 @@ export function StagePrint({ data }: { data: TournamentData }) {
                         {table.rows.map((r) => (
                           <tr key={r.teamId} className={r.teamId === teamId ? 'b' : undefined}>
                             <td>{r.place}</td>
-                            <td className="l">{name(r.teamId)}</td>
+                            <td className="l">
+                              {teamMark(r.teamId)}
+                              {name(r.teamId)}
+                            </td>
                             <td>{r.played}</td>
                             <td>{r.won}</td>
                             <td>{r.drawn}</td>
@@ -235,8 +246,14 @@ export function StagePrint({ data }: { data: TournamentData }) {
                     <h3>{r.heading}</h3>
                     {r.matches.map((m) => (
                       <div key={m.id} className="print-bracket-match">
-                        <div className={bold(m, 'A') ? 'b' : m.teamAId ? '' : 'print-slot'}>{sideText(m, 'A', format, name)}</div>
-                        <div className={bold(m, 'B') ? 'b' : m.teamBId ? '' : 'print-slot'}>{sideText(m, 'B', format, name)}</div>
+                        <div className={bold(m, 'A') ? 'b' : m.teamAId ? '' : 'print-slot'}>
+                          {teamMark(m.teamAId)}
+                          {sideText(m, 'A', format, name)}
+                        </div>
+                        <div className={bold(m, 'B') ? 'b' : m.teamBId ? '' : 'print-slot'}>
+                          {teamMark(m.teamBId)}
+                          {sideText(m, 'B', format, name)}
+                        </div>
                         <div className="print-small">
                           {formatTime(m.startISO, t.timeZone)} · {fieldName(m.fieldId)} · {score(m)}
                         </div>

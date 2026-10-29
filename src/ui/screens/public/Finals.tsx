@@ -4,11 +4,11 @@ import { useState } from 'react';
 import type { KnockoutStage, StageConfig } from '../../../domain/format';
 import type { PublicMatch } from '../../data/types';
 import { formatTime } from '../../format';
-import { EmptyState, MatchStatusPill, Notice } from '../../components/ui';
+import { Crest, EmptyState, MatchStatusPill, Notice, TeamName } from '../../components/ui';
 import { Bracket, BracketCard, type BracketMatch, type BracketRound, type BracketSide } from '../../components/bracket/Bracket';
 import { STAGE_COLORS, matchLabel, resultNote, roundTitle, treeRound, type Placement } from './stageView';
 import { Dot, FavPicker, PublicMatchCard, TimeSlots } from './parts';
-import { sidesOf, teamName, type Ctx } from './ctx';
+import { sidesOf, teamLogo, teamName, type Ctx } from './ctx';
 import { useFavorite } from './favorite';
 
 type FinalStage = Exclude<StageConfig, { kind: 'swiss' | 'groups' }>;
@@ -33,6 +33,7 @@ function bracketSide(ctx: Ctx, m: PublicMatch, s: 'A' | 'B', fav: string | null)
   const goals = ctx.scores && (m.status === 'completed' || m.status === 'live') ? (s === 'A' ? m.goalsA : m.goalsB) : undefined;
   return {
     name: side.teamId ? teamName(ctx, side.teamId) : (side.slotLabel ?? 'Noch offen'),
+    ...(teamLogo(ctx, side.teamId) ? { logo: teamLogo(ctx, side.teamId) } : {}),
     ...(side.slotShort ? { short: side.slotShort } : {}),
     ...(goals !== undefined ? { goals } : {}),
     state: !side.teamId ? 'open' : side.provisional ? 'preview' : winner ? (winner === side.teamId ? 'win' : 'lose') : undefined,
@@ -138,6 +139,7 @@ function StageCard({ ctx, stage, fav }: { ctx: Ctx; stage: FinalStage; fav: stri
           <span className="st-medal" aria-hidden>
             {offset + 1}
           </span>
+          {teamLogo(ctx, champ) && <Crest name={teamName(ctx, champ)} logo={teamLogo(ctx, champ)} large />}
           <div>
             <small>{offset === 0 ? 'Turniersieger' : `Sieger ${stage.name}`}</small>
             <b className={champ === fav ? 'st-fav' : undefined}>{teamName(ctx, champ)}</b>
@@ -157,7 +159,13 @@ function StageCard({ ctx, stage, fav }: { ctx: Ctx; stage: FinalStage; fav: stri
                 const cls = [!s.teamId ? 'st-open' : s.provisional ? 'st-preview' : '', w && s.teamId === w ? 'st-win' : w ? 'muted' : '', !!fav && s.teamId === fav ? 'st-fav' : '']
                   .filter(Boolean)
                   .join(' ');
-                return <span className={cls}>{s.teamId ? teamName(ctx, s.teamId) : (s.slotLabel ?? 'Noch offen')}</span>;
+                const logo = teamLogo(ctx, s.teamId);
+                return (
+                  <span className={cls}>
+                    {logo && <Crest name="" logo={logo} small />}
+                    {s.teamId ? teamName(ctx, s.teamId) : (s.slotLabel ?? 'Noch offen')}
+                  </span>
+                );
               };
               const score =
                 ctx.scores && m.goalsA !== undefined && (m.status === 'completed' || m.status === 'live') ? `${m.goalsA}:${m.goalsB}` : formatTime(m.startISO, ctx.view.tournament.timeZone);
@@ -202,7 +210,7 @@ function FinalStandings({ ctx, fav }: { ctx: Ctx; fav: string | null }) {
           return (
             <li key={p.teamId} className={p.teamId === fav ? 'st-place mine' : 'st-place'}>
               <b>{placeText(p)}</b>
-              <span>{teamName(ctx, p.teamId)}</span>
+              <TeamName name={teamName(ctx, p.teamId)} logo={teamLogo(ctx, p.teamId)} />
               {c && <Dot color={c} />}
             </li>
           );

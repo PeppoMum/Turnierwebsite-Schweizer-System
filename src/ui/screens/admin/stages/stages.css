@@ -310,3 +310,8 @@
   gap: 4px 16px;
   font-size: 13px;
 }
+
+.result-line .crest {
+  vertical-align: middle;
+  margin-right: 6px;
+}

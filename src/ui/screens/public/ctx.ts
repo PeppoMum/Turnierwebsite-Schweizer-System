@@ -21,6 +21,10 @@ export function teamName(ctx: Ctx, id: string | null | undefined): string {
   return (id && ctx.teams.get(id)?.name) || '';
 }
 
+export function teamLogo(ctx: Ctx, id: string | null | undefined): string | undefined {
+  return id ? ctx.teams.get(id)?.logo : undefined;
+}
+
 /** Name einer Spielseite; Platzhalter, solange das Team nicht feststeht. */
 export function sideName(ctx: Ctx, s: SideView): string {
   return s.teamId ? teamName(ctx, s.teamId) || '?' : (s.slotLabel ?? 'Noch offen');

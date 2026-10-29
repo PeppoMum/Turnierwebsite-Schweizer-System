@@ -1,0 +1,222 @@
+/* Turnierbaum. Nur Farbrollen aus tokens.css. */
+.bk-scroll {
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  --bk-gap: 32px;
+  --bk-line: var(--ln);
+}
+
+.bk-scroll:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+  border-radius: var(--r-card);
+}
+
+.bk {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(230px, 1fr);
+  column-gap: var(--bk-gap);
+  min-width: min-content;
+}
+
+.bk-col {
+  display: flex;
+  flex-direction: column;
+  scroll-snap-align: start;
+  min-width: 0;
+}
+
+.bk-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.bk-title span {
+  color: var(--mu);
+  font-weight: 500;
+}
+
+.bk-cells {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.bk-cell {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  position: relative;
+  padding: 8px 0;
+}
+
+/* Linie nach rechts zur Mitte des Paares, senkrechter Strich verbindet zwei Spiele. */
+.bk-col:not(.last) .bk-cell::after {
+  content: '';
+  position: absolute;
+  right: calc(var(--bk-gap) / -2);
+  width: calc(var(--bk-gap) / 2);
+  top: 50%;
+  border-top: 1.5px solid var(--bk-line);
+}
+
+.bk-col:not(.last) .bk-cell::before {
+  content: '';
+  position: absolute;
+  right: calc(var(--bk-gap) / -2);
+  border-right: 1.5px solid var(--bk-line);
+}
+
+.bk-col:not(.last) .bk-cell:nth-child(odd)::before {
+  top: 50%;
+  bottom: 0;
+}
+
+.bk-col:not(.last) .bk-cell:nth-child(even)::before {
+  top: 0;
+  bottom: 50%;
+}
+
+.bk-col:not(:first-child) .bk-match::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--bk-gap) / -2 - 1px);
+  width: calc(var(--bk-gap) / 2 + 1px);
+  top: 50%;
+  border-top: 1.5px solid var(--bk-line);
+}
+
+.bk-match {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--card);
+  border: 1px solid var(--ln);
+  border-radius: 12px;
+  padding: 9px 12px;
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.bk-match.live {
+  border: 1.5px solid var(--ac);
+}
+
+.bk-match.mine {
+  background: var(--acs);
+}
+
+.bk-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mu);
+  min-width: 0;
+}
+
+.bk-meta-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bk-meta .pill {
+  height: 20px;
+  font-size: 11px;
+  padding: 0 8px;
+}
+
+.bk-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  min-width: 0;
+}
+
+.bk-short {
+  flex: none;
+  width: 30px;
+  font-size: 11px;
+  color: var(--mu);
+  white-space: nowrap;
+}
+
+.bk-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bk-goals {
+  font-size: 15px;
+  min-width: 14px;
+  text-align: right;
+}
+
+.bk-side.win .bk-name {
+  font-weight: 700;
+}
+
+.bk-side.lose .bk-name,
+.bk-side.lose .bk-goals {
+  color: var(--mu);
+}
+
+.bk-side.open .bk-name {
+  color: var(--mu);
+  font-style: italic;
+}
+
+.bk-side.preview .bk-name {
+  font-style: italic;
+}
+
+.bk-side.mine .bk-name {
+  color: var(--ac);
+  font-weight: 700;
+}
+
+.bk-note {
+  font-size: 11px;
+  color: var(--mu);
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .bk-scroll {
+    --bk-gap: 16px;
+  }
+
+  /* Zwei Runden passen nebeneinander, die nächste schaut am Rand hervor. */
+  .bk {
+    grid-auto-columns: calc((100vw - 32px - 2px - 24px - var(--bk-gap)) / 2.15);
+  }
+
+  .bk-match {
+    padding: 7px 9px;
+  }
+
+  .bk-match .bk-meta {
+    display: none;
+  }
+
+  .bk-side {
+    font-size: 12.5px;
+    gap: 6px;
+  }
+
+  .bk-short {
+    display: none;
+  }
+}

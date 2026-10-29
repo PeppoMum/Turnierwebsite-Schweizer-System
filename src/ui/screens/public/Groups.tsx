@@ -9,7 +9,7 @@ import { EmptyState, Notice } from '../../components/ui';
 import { Icon } from '../../components/Icon';
 import { STAGE_COLORS, groupLetter, type GroupView, type PlaceMark, type StageTable } from './stageView';
 import { Dot, FavPicker } from './parts';
-import { sidesOf, teamName, type Ctx } from './ctx';
+import { durationOf, sidesOf, teamName, type Ctx } from './ctx';
 import { useFavorite } from './favorite';
 
 function markColor(marks: PlaceMark[] | undefined): string | undefined {
@@ -147,7 +147,10 @@ function GroupGames({ ctx, matches, fav }: { ctx: Ctx; matches: PublicMatch[]; f
           const cls = (id: string) => (id === fav ? 'st-fav' : undefined);
           return (
             <div key={m.id} className={m.status === 'live' ? 'st-gm live' : 'st-gm'}>
-              <span className="st-gm-time">{formatTime(m.startISO, tz)}</span>
+              <span className="st-gm-time">
+                {formatTime(m.startISO, tz)}
+                {durationOf(ctx, m) && <small className="st-gm-dur">{m.durationMinutes} Min.</small>}
+              </span>
               <span className={cls(m.teamAId)}>{teamName(ctx, m.teamAId)}</span>
               <span className="st-gm-score">{score}</span>
               <span className={['st-gm-b', cls(m.teamBId)].filter(Boolean).join(' ')}>{teamName(ctx, m.teamBId)}</span>
@@ -269,6 +272,7 @@ function MyTeamBox({ ctx, table, fav }: { ctx: Ctx; table: StageTable; fav: stri
               <div className="st-mini-t">
                 <span>
                   {formatTime(m.startISO, tz)} · {ctx.field(m.fieldId)}
+                  {durationOf(ctx, m) ? ` · ${durationOf(ctx, m)}` : ''}
                 </span>
                 {badge(m)}
               </div>
@@ -298,6 +302,7 @@ function NextMini({ ctx, m, fav }: { ctx: Ctx; m: PublicMatch; fav: string }) {
       <div className="st-mini-t">
         <b className="st-accent">
           {m.status === 'live' ? 'Läuft gerade' : 'Als Nächstes'} · {formatTime(m.startISO, ctx.view.tournament.timeZone)} · {ctx.field(m.fieldId)}
+          {durationOf(ctx, m) ? ` · ${durationOf(ctx, m)}` : ''}
         </b>
       </div>
       {[a, b].map((s, i) => (

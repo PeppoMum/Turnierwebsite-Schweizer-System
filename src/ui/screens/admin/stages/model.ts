@@ -5,7 +5,7 @@ import { useMemo } from 'react';
 import type { Match } from '../../../../domain';
 import type { FinalPlacement, GroupStage, SlotRef, StageColor, StageConfig, StageStandings, TournamentFormat } from '../../../../domain/format';
 import { finalPlacements, resolveFormat, type FillChange, type PlacementResult, type Resolution, type ResolveInput } from '../../../../domain/format/resolve';
-import { calculateGroupStageStandings, carryOverFrom, groupLetter, type GroupStageStandings } from '../../../../domain/groups';
+import { calculateGroupStageStandings, carryOverFrom, groupLetter, isScoredWalkover, type GroupStageStandings } from '../../../../domain/groups';
 import { decideKnockoutMatch, formatKnockoutResult, matchLabel } from '../../../../domain/knockout';
 import { checkStageSchedule, slotLabel, type EditableMatch, type ScheduleIssue } from '../../../../domain/schedule';
 import type { LotDecision, TournamentData } from '../../../data/types';
@@ -101,6 +101,7 @@ function editable(d: TournamentData): EditableMatch[] {
     .map((m) => ({
       id: m.id,
       stageId: m.stageId!,
+      groupIndex: m.groupIndex,
       matchKey: m.matchKey,
       teamAId: m.teamAId || undefined,
       teamBId: m.teamBId || undefined,
@@ -217,7 +218,7 @@ export function sideText(m: Match, side: 'A' | 'B', format: TournamentFormat, te
 
 /** Ergebnis als Text; Endrunde mit „n. V.“ und „n. N.“. Leer, solange nichts eingetragen ist. */
 export function resultText(m: Match, format: TournamentFormat | undefined): string {
-  if (m.decidedBy === 'walkover') return 'kampflos';
+  if (m.decidedBy === 'walkover') return isScoredWalkover(m) ? `${m.goalsA}:${m.goalsB} (kampflos)` : 'kampflos';
   if (m.status === 'not_played') return 'n. a.';
   if (m.status !== 'completed' && m.status !== 'live') return '';
   if (m.status === 'completed' && isFinalsStage(format && stageById(format, m.stageId))) {
@@ -270,6 +271,8 @@ export function filledFinalsFrom(d: TournamentData, stageId: string): Match[] {
     s && (s.kind === 'group_place' || s.kind === 'best_of_place' || s.kind === 'table_place') && s.stageId === stageId;
   return d.matches.filter((m) => (m.teamAId && fromStage(m.slotA)) || (m.teamBId && fromStage(m.slotB)));
 }
+
+export { durationNote, standardMinutes } from '../../../format';
 
 // ---- Zeitblöcke ----
 

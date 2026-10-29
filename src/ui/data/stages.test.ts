@@ -4,6 +4,7 @@ import { describeHistory } from './history';
 import { MockTournamentStore } from './mockStore';
 import type { WizardDraft } from './types';
 import { undoChecks } from './undo';
+import { buildStageModel, resultText } from '../screens/admin/stages/model';
 
 const TID = 'sommercup';
 
@@ -252,6 +253,48 @@ describe('Baukasten in der Datenhaltung', () => {
     expect(s.getPublic(TID)!.lots).toHaveLength(1);
   });
 
+  it('Team kommt zu spät: Spiel kampflos 2:0 werten, zählt in der Tabelle, Team bleibt, rückgängig machbar', async () => {
+    const s = store();
+    // Im Beispiel läuft nur noch das letzte Gruppenspiel; zurück auf „geplant“, als wäre noch nicht angepfiffen.
+    const open = data(s).matches.find((m) => m.stageId && !m.matchKey && m.status === 'live')!;
+    await s.setMatchStatus(TID, open.id, 'scheduled');
+    const row = (teamId: string) =>
+      buildStageModel(data(s))!.standings[open.stageId!]!.tables[open.groupIndex!]!.rows.find((r) => r.teamId === teamId)!;
+    const before = row(open.teamBId);
+
+    await s.recordWalkover(TID, open.id, 'B');
+    const m = data(s).matches.find((x) => x.id === open.id)!;
+    expect(m).toMatchObject({ status: 'completed', goalsA: 0, goalsB: 2, decidedBy: 'walkover', walkoverWinner: 'B' });
+    expect(row(open.teamBId)).toMatchObject({
+      played: before.played + 1,
+      won: before.won + 1,
+      points: before.points + 3,
+      goalsFor: before.goalsFor + 2,
+    });
+    expect(data(s).teams.find((t) => t.id === open.teamAId)!.status).toBe('active');
+    expect(resultText(m, data(s).tournament.format)).toBe('0:2 (kampflos)');
+    expect(s.getPublic(TID)!.matches.find((x) => x.id === open.id)).toMatchObject({ goalsA: 0, goalsB: 2, decidedBy: 'walkover' });
+
+    const entries = await s.loadHistory(TID);
+    expect(describeHistory(entries, data(s))[0]!.text).toMatch(/^Kampflos gewertet: .* 0:2 \(kampflos\), Sieg für /);
+    expect(undoChecks(entries, data(s)).get(entries[0]!.id)).toMatchObject({ ok: true });
+    await s.undoHistory(TID, entries[0]!);
+    expect(data(s).matches.find((x) => x.id === open.id)).toMatchObject({ status: 'scheduled', goalsA: undefined, decidedBy: undefined, walkoverWinner: undefined });
+    expect(row(open.teamBId)).toEqual(before);
+
+    // „Korrigieren“ setzt ein kampflos gewertetes Spiel auf „geplant“ zurück.
+    await s.recordWalkover(TID, open.id, 'A');
+    await s.reopenMatch(TID, open.id);
+    expect(data(s).matches.find((x) => x.id === open.id)).toMatchObject({ status: 'scheduled', goalsA: undefined, goalsB: undefined, decidedBy: undefined });
+    // Und das Wieder-Öffnen lässt sich zurücknehmen: wieder 2:0 kampflos.
+    await s.undoHistory(TID, await latest(s));
+    expect(data(s).matches.find((x) => x.id === open.id)).toMatchObject({ status: 'completed', goalsA: 2, goalsB: 0, decidedBy: 'walkover', walkoverWinner: 'A' });
+
+    await expect(s.recordWalkover(TID, open.id, 'B')).rejects.toThrow(/schon vorbei/);
+    await expect(s.recordWalkover(TID, match(s, 'F').id, 'A')).rejects.toThrow(/Endrunde/);
+    await expect(s.recordWalkover('herbstcup', data(s).matches[0]!.id, 'A')).rejects.toThrow(/Gruppen oder Endrunde/);
+  });
+
   it('Schweizer-System-Turniere bleiben unberührt', async () => {
     const s = store();
     await expect(s.publishTournament('herbstcup')).rejects.toThrow(/Gruppen oder Endrunde/);
@@ -270,5 +313,47 @@ describe('Baukasten in der Datenhaltung', () => {
     expect(pm).toMatchObject({ decidedBy: 'penalties' });
     expect(pm.penaltiesA).toBeUndefined();
     expect(pm.goalsA).toBeUndefined();
+  });
+  it('Plan straffen und längere Spielzeit: neue Zeiten und Dauer, im Verlauf, rückgängig machbar', async () => {
+    const s = store();
+    const f = match(s, 'F');
+    const p3 = match(s, 'P3');
+    const earlier = new Date(Date.parse(f.startISO!) - 15 * 60000).toISOString();
+    await s.placeMatches(TID, 'compact', [{ matchId: f.id, fieldId: p3.fieldId!, startISO: earlier }]);
+    expect(match(s, 'F')).toMatchObject({ startISO: earlier, fieldId: p3.fieldId });
+    expect(match(s, 'F').manual).toBeUndefined();
+    let entries = await s.loadHistory(TID);
+    expect(describeHistory(entries, data(s))[0]!.text).toBe('Plan gestrafft: 1 Spiel rückt nach vorne');
+    expect(undoChecks(entries, data(s)).get(entries[0]!.id)).toMatchObject({ ok: true });
+    await s.undoHistory(TID, entries[0]!);
+    expect(match(s, 'F')).toMatchObject({ startISO: f.startISO, fieldId: f.fieldId });
+
+    await s.placeMatches(TID, 'longer', [{ matchId: p3.id, fieldId: p3.fieldId!, startISO: p3.startISO!, durationMinutes: 18 }]);
+    expect(match(s, 'P3').durationMinutes).toBe(18);
+    expect(s.getPublic(TID)!.matches.find((m) => m.matchKey === 'P3')!.durationMinutes).toBe(18);
+    entries = await s.loadHistory(TID);
+    expect(describeHistory(entries, data(s))[0]!.text).toBe('Dreiergruppe spielt länger (18 Min.): 1 Spiel');
+    await s.undoHistory(TID, entries[0]!);
+    expect(match(s, 'P3').durationMinutes).toBe(p3.durationMinutes);
+
+    const live = data(s).matches.find((m) => m.status === 'live')!;
+    await expect(s.placeMatches(TID, 'compact', [{ matchId: live.id, fieldId: live.fieldId!, startISO: earlier }])).rejects.toThrow(/angepfiffen/);
+    await expect(s.placeMatches(TID, 'longer', [{ matchId: p3.id, fieldId: p3.fieldId!, startISO: p3.startISO!, durationMinutes: 0 }])).rejects.toThrow(
+      /Spielzeit/,
+    );
+  });
+
+  it('Haken „ist da“: gespeichert, im Verlauf, rückgängig machbar, nicht für Zuschauer', async () => {
+    const s = store();
+    const team = data(s).teams[0]!;
+    await s.setTeamPresent(TID, team.id, true);
+    expect(data(s).teams[0]!.checkedInAt).toBeTruthy();
+    expect(JSON.stringify(s.getPublic(TID)!.teams)).not.toContain('checkedInAt');
+    const entries = await s.loadHistory(TID);
+    expect(describeHistory(entries, data(s))[0]!.text).toBe(`${team.name} ist da`);
+    await s.setTeamPresent(TID, team.id, true); // doppelt: keine neue Zeile
+    expect((await s.loadHistory(TID)).length).toBe(entries.length);
+    await s.undoHistory(TID, entries[0]!);
+    expect(data(s).teams[0]!.checkedInAt).toBeUndefined();
   });
 });

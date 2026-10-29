@@ -11,7 +11,7 @@
 import type { Match, NotPlayedReason, Visibility } from '../../domain';
 import { visibilityLabel } from '../format';
 import { canChangeDate } from './details';
-import { isOpen, layoutSnap, sameLayout, stageOf, type LayoutSnap } from './stages';
+import { isOpen, layoutSnap, reshapeStateFromAudit, sameLayout, stageOf, type LayoutSnap, type ReshapeState } from './stages';
 import type { GroupDraw, HistoryEntry, TournamentData } from './types';
 
 export interface MatchTarget {
@@ -20,7 +20,7 @@ export interface MatchTarget {
   goalsB: number | null;
   notPlayedReason: NotPlayedReason | null;
   /** Nur bei Baukasten-Spielen: wie das Spiel entschieden war. */
-  decided?: { decidedBy: Match['decidedBy'] | null; penaltiesA: number | null; penaltiesB: number | null };
+  decided?: { decidedBy: Match['decidedBy'] | null; penaltiesA: number | null; penaltiesB: number | null; walkoverWinner?: 'A' | 'B' | null };
 }
 
 export interface DetailsPatch {
@@ -42,7 +42,10 @@ export type UndoPlan =
   | { kind: 'tournament-reopen' }
   /** Ort, Zeit oder Gegner mehrerer Spiele zurück auf `target`; `reopen`: kampflos gewertete Spiele wieder öffnen. */
   | { kind: 'layout'; target: LayoutSnap[]; current: LayoutSnap[]; reopen: boolean }
-  | { kind: 'group-draw'; draw: Omit<GroupDraw, 'updatedAt'> };
+  | { kind: 'group-draw'; draw: Omit<GroupDraw, 'updatedAt'> }
+  /** „Turnier umstellen“ zurücknehmen: Format, Gruppen, Teamstatus und offene Spiele wie vorher. */
+  | { kind: 'reshape'; state: ReshapeState; title: string }
+  | { kind: 'team-present'; teamId: string; present: boolean };
 
 export type UndoCheck =
   | { ok: true; plan: UndoPlan; explain: string; warning?: string }
@@ -61,8 +64,18 @@ const MATCH_ACTIONS = new Set([
   'match.reopen',
   'match.reset',
   'match.undo',
+  'match.walkover',
 ]);
-const LAYOUT_ACTIONS = new Set(['match.swap', 'match.swap_teams', 'match.move', 'finals.fill', 'team.withdraw_qualified', 'matches.undo']);
+const LAYOUT_ACTIONS = new Set([
+  'match.swap',
+  'match.swap_teams',
+  'match.move',
+  'finals.fill',
+  'team.withdraw_qualified',
+  'matches.undo',
+  'schedule.compact',
+  'schedule.longer',
+]);
 const DETAIL_KEYS = ['title', 'organizerName', 'venue', 'localDate'] as const;
 const TARGET_STATUSES = new Set(['scheduled', 'live', 'completed', 'not_played']);
 
@@ -77,10 +90,12 @@ function subjectOf(e: HistoryEntry): string | null {
     return ids.length > 0 ? `layout:${ids.join(',')}` : null;
   }
   if (e.action === 'groups.draw') return `groups:${e.targetId}`;
+  if (e.action === 'tournament.reshape') return 'reshape';
   if (e.action === 'team.withdrawn' || e.action === 'team.no_show' || e.action === 'team.restore') {
     return `team-status:${str(after.teamId) ?? ''}`;
   }
   if (e.action === 'team.update' || e.action === 'team.add') return `team-name:${e.targetId}`;
+  if (e.action === 'team.present') return `team-present:${e.targetId}`;
   if (e.action === 'tournament.update') {
     return DETAIL_KEYS.some((k) => k in after) ? 'details' : null;
   }
@@ -112,7 +127,7 @@ export function matchLabelOf(data: TournamentData, id: string): string {
 }
 
 /** Spielstand in Worten, z. B. „beendet mit 2:1“. */
-export function matchStateText(s: { status?: unknown; goalsA?: unknown; goalsB?: unknown }): string {
+export function matchStateText(s: { status?: unknown; goalsA?: unknown; goalsB?: unknown; decidedBy?: unknown }): string {
   const a = num(s.goalsA);
   const b = num(s.goalsB);
   const score = a !== null && b !== null ? `${a}:${b}` : null;
@@ -122,7 +137,7 @@ export function matchStateText(s: { status?: unknown; goalsA?: unknown; goalsB?:
     case 'live':
       return score ? `läuft, Stand ${score}` : 'läuft';
     case 'completed':
-      return `beendet mit ${score ?? '?'}`;
+      return `beendet mit ${score ?? '?'}${s.decidedBy === 'walkover' ? ' (kampflos)' : ''}`;
     case 'not_played':
       return 'nicht ausgetragen';
     default:
@@ -162,7 +177,14 @@ function checkMatch(e: HistoryEntry, data: TournamentData): UndoCheck | null {
     goalsB: status === 'completed' || status === 'live' ? num(before.goalsB) : null,
     notPlayedReason: status === 'not_played' ? ((str(before.notPlayedReason) as NotPlayedReason | undefined) ?? 'other') : null,
     ...('decidedBy' in before
-      ? { decided: { decidedBy: (str(before.decidedBy) as Match['decidedBy']) ?? null, penaltiesA: num(before.penaltiesA), penaltiesB: num(before.penaltiesB) } }
+      ? {
+          decided: {
+            decidedBy: (str(before.decidedBy) as Match['decidedBy']) ?? null,
+            penaltiesA: num(before.penaltiesA),
+            penaltiesB: num(before.penaltiesB),
+            walkoverWinner: before.walkoverWinner === 'A' || before.walkoverWinner === 'B' ? before.walkoverWinner : null,
+          },
+        }
       : {}),
   };
   if (target.status === 'completed' && (target.goalsA === null || target.goalsB === null)) return null;
@@ -170,7 +192,8 @@ function checkMatch(e: HistoryEntry, data: TournamentData): UndoCheck | null {
     !target.decided ||
     (target.decided.decidedBy === (m.decidedBy ?? null) &&
       target.decided.penaltiesA === (m.penaltiesA ?? null) &&
-      target.decided.penaltiesB === (m.penaltiesB ?? null));
+      target.decided.penaltiesB === (m.penaltiesB ?? null) &&
+      (target.decided.walkoverWinner ?? null) === (m.walkoverWinner ?? null));
   if (target.status === m.status && target.goalsA === (m.goalsA ?? null) && target.goalsB === (m.goalsB ?? null) && sameDecision) {
     return null;
   }
@@ -224,7 +247,11 @@ function checkLayout(e: HistoryEntry, data: TournamentData): UndoCheck | null {
         ? reopen
           ? 'Die kampflos gewerteten Spiele sind danach wieder offen. Der Rückzug selbst bleibt; den nimmst du über seinen eigenen Eintrag zurück.'
           : 'Das zurückgezogene Team steht danach wieder in seinen Spielen. Der Rückzug selbst bleibt; den nimmst du über seinen eigenen Eintrag zurück.'
-        : 'Uhrzeit, Feld und Gegner stehen danach wieder wie vorher.';
+        : e.action === 'schedule.longer'
+          ? 'Die Spiele dauern danach wieder so lange wie vorher.'
+          : e.action === 'schedule.compact'
+            ? 'Die nach vorne gezogenen Spiele stehen danach wieder an ihrer alten Zeit.'
+            : 'Uhrzeit, Feld und Gegner stehen danach wieder wie vorher.';
   return { ok: true, plan: { kind: 'layout', target, current, reopen }, explain: what };
 }
 
@@ -256,6 +283,31 @@ function checkGroupDraw(e: HistoryEntry, data: TournamentData): UndoCheck | null
     },
     explain: 'Die Gruppen sind danach wieder so eingeteilt wie vorher.',
     warning: 'Den Spielplan danach bitte neu berechnen, damit die Spiele zur Einteilung passen.',
+  };
+}
+
+function checkReshape(e: HistoryEntry, data: TournamentData): UndoCheck | null {
+  const target = reshapeStateFromAudit(e.before);
+  const after = rec(e.after);
+  const ids = Array.isArray(after.matchIds) ? (after.matchIds as unknown[]).filter((x): x is string => typeof x === 'string') : null;
+  if (!target || !ids) return null;
+  if (JSON.stringify(data.tournament.format) !== JSON.stringify(after.format)) return { ok: false, reason: CHANGED_SINCE };
+  for (const id of ids) {
+    const m = data.matches.find((x) => x.id === id);
+    if (!m) return { ok: false, reason: CHANGED_SINCE };
+    if (!isOpen(m)) return { ok: false, reason: 'Nach dem Umstellen wurde schon gespielt. Der neue Plan bleibt deshalb.' };
+  }
+  const afterTeams = Array.isArray(after.teams) ? (after.teams as { id: string; status: string }[]) : [];
+  for (const t of afterTeams) {
+    if (data.teams.find((x) => x.id === t.id)?.status !== t.status) return { ok: false, reason: CHANGED_SINCE };
+  }
+  const back = target.teamStatus.filter((t) => t.status === 'active').map((t) => teamNameOf(data, t.id));
+  return {
+    ok: true,
+    plan: { kind: 'reshape', state: target, title: str(after.title) ?? 'Turnier umgestellt' },
+    explain:
+      'Das Turnier steht danach wieder wie vor dem Umstellen: dieselben Gruppen, dieselbe Endrunde, dieselben Uhrzeiten.' +
+      (back.length > 0 ? ` ${back.join(', ')} ${back.length === 1 ? 'spielt' : 'spielen'} wieder mit.` : ''),
   };
 }
 
@@ -395,6 +447,16 @@ export function undoCheck(e: HistoryEntry, data: TournamentData, newest = true):
         explain: `Die Mannschaft heißt danach wieder „${old}“.`,
       };
     }
+    case 'team.present': {
+      const team = data.teams.find((x) => x.id === e.targetId);
+      if (!team || typeof after.present !== 'boolean') return null;
+      if (Boolean(team.checkedInAt) !== after.present) return { ok: false, reason: CHANGED_SINCE };
+      return {
+        ok: true,
+        plan: { kind: 'team-present', teamId: team.id, present: !after.present },
+        explain: after.present ? `Bei ${team.name} ist „ist da“ danach nicht mehr abgehakt.` : `${team.name} ist danach wieder als „ist da“ abgehakt.`,
+      };
+    }
     case 'tournament.update':
       return checkDetails(e, data);
     case 'tournament.visibility': {
@@ -423,6 +485,8 @@ export function undoCheck(e: HistoryEntry, data: TournamentData, newest = true):
       return checkRoundClose(e, data);
     case 'groups.draw':
       return checkGroupDraw(e, data);
+    case 'tournament.reshape':
+      return checkReshape(e, data);
     case 'tournament.status.finished':
       if (t.status !== 'finished') return { ok: false, reason: CHANGED_SINCE };
       return {

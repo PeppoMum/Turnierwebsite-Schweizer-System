@@ -5,7 +5,7 @@ import { formatTime } from '../../format';
 import { MatchStatusPill, TeamName } from '../../components/ui';
 import { TeamPicker } from '../../components/TeamPicker';
 import { matchTitle, resultNote, type SideView } from './stageView';
-import { pickerTeams, sidesOf, stageColorOf, teamName, type Ctx } from './ctx';
+import { durationOf, pickerTeams, sidesOf, stageColorOf, teamName, type Ctx } from './ctx';
 import './stages.css';
 
 export function Dot({ color, label }: { color: string; label?: string }) {
@@ -44,6 +44,7 @@ export function PublicMatchCard({ ctx, m, showRound, fav, hint }: { ctx: Ctx; m:
       <div className="match-meta">
         <span style={{ fontWeight: 600, color: 'var(--tx)' }}>{ctx.field(m.fieldId)}</span>
         <span>{formatTime(m.startISO, ctx.view.tournament.timeZone)}</span>
+        {durationOf(ctx, m) && <span className="pill y">{durationOf(ctx, m)}</span>}
         {ctx.model ? (
           (showRound || m.stageId) && (
             <span className="st-round">

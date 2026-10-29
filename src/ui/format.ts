@@ -1,5 +1,6 @@
 // Anzeigeformate nach Style Guide: Komma als Dezimalzeichen, Datum kurz „Sa 10.01.“, Uhrzeit „19:00“.
 import type { MatchStatus, TournamentStatus, Visibility } from '../domain';
+import type { TournamentFormat } from '../domain/format';
 
 const TZ_DEFAULT = 'Europe/Berlin';
 
@@ -79,4 +80,26 @@ export function initials(name: string): string {
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
+}
+
+/** Übliche Spielzeit eines Spiels: Abschnitt (beim Finale ggf. eigene Finalzeit), sonst Turnier-Standard. */
+export function standardMinutes(
+  m: { stageId?: string; matchKey?: string },
+  format: TournamentFormat | undefined,
+  defaultMinutes: number | undefined,
+): number | undefined {
+  const stage = format?.stages.find((s) => s.id === m.stageId);
+  if (stage?.kind === 'knockout' && m.matchKey === 'F' && stage.finalMatchMinutes) return stage.finalMatchMinutes;
+  return stage?.matchMinutes ?? defaultMinutes;
+}
+
+/** „18 Min. Spielzeit“, wenn ein Spiel anders lang dauert als üblich (z. B. Dreiergruppe spielt länger). */
+export function durationNote(
+  m: { stageId?: string; matchKey?: string; durationMinutes?: number },
+  format: TournamentFormat | undefined,
+  defaultMinutes: number | undefined,
+): string | undefined {
+  const usual = standardMinutes(m, format, defaultMinutes);
+  if (!m.durationMinutes || usual === undefined || m.durationMinutes === usual) return undefined;
+  return `${m.durationMinutes} Min. Spielzeit`;
 }

@@ -6,8 +6,11 @@
 // - Angepfiffene und beendete Spiele lassen sich nicht mehr verschieben, tauschen oder neu besetzen.
 // - Jede Änderung an Ort, Zeit oder Gegnern merkt sich den Stand davor und danach (`LayoutSnap`),
 //   damit der Verlauf sie zurücknehmen kann.
-import type { Match, Team } from '../../domain';
-import type { GroupStage, SlotRef, StageConfig } from '../../domain/format';
+import type { Match, Team, TeamStatus } from '../../domain';
+import type { GroupStage, SlotRef, StageConfig, TournamentFormat } from '../../domain/format';
+import { scoredWalkover, type ScoredWalkover } from '../../domain/groups/walkover';
+import { validateFormat } from '../../domain/knockout';
+import type { MatchPlacement } from '../../domain/schedule';
 import type { GroupDraw, KnockoutResult, MatchMove, MatchSide, PlannedStageMatch, SlotFill, TournamentData, WithdrawalChoice } from './types';
 
 /** Was an einem Spiel von Hand geändert werden kann (für Verlauf und Rückgängig). */
@@ -21,6 +24,8 @@ export interface LayoutSnap {
   startISO: string | null;
   waveIndex: number | null;
   manual: boolean;
+  /** Spieldauer; fehlt bei älteren Verlaufseinträgen (dann wird sie nicht verglichen). */
+  durationMinutes?: number;
 }
 
 export const NOT_FOUND = 'Turnier nicht gefunden';
@@ -37,6 +42,7 @@ export function layoutSnap(m: Match): LayoutSnap {
     startISO: m.startISO ?? null,
     waveIndex: m.waveIndex ?? null,
     manual: m.manual ?? false,
+    durationMinutes: m.durationMinutes,
   };
 }
 
@@ -49,10 +55,17 @@ export function applyLayoutSnap(m: Match, s: LayoutSnap): void {
   m.startISO = s.startISO ?? undefined;
   m.waveIndex = s.waveIndex ?? undefined;
   m.manual = s.manual || undefined;
+  if (typeof s.durationMinutes === 'number') m.durationMinutes = s.durationMinutes;
 }
 
 export function sameLayout(a: LayoutSnap, b: LayoutSnap): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  const plain = (s: LayoutSnap) => {
+    const { durationMinutes: _d, ...rest } = s;
+    void _d;
+    return JSON.stringify(rest);
+  };
+  if (a.durationMinutes === undefined || b.durationMinutes === undefined) return plain(a) === plain(b);
+  return plain(a) === plain(b) && a.durationMinutes === b.durationMinutes;
 }
 
 export function stageOf(d: TournamentData, stageId: string | undefined): StageConfig | undefined {
@@ -141,6 +154,24 @@ export function checkKnockoutResult(d: TournamentData, matchId: string, r: Knock
   if (r.decidedBy === 'extra_time' && stageOf(d, m.stageId) && drawDeciderOf(d, m) !== 'extra_time_then_penalties') {
     throw new Error('Für diese Endrunde ist keine Verlängerung eingestellt.');
   }
+}
+
+/**
+ * Gruppenspiel kampflos werten (Team kommt nicht, bleibt aber im Turnier): nur Baukasten-Spiele
+ * außerhalb der Endrunde, die noch nicht beendet sind und deren Teams beide noch dabei sind.
+ * Gibt das Ergebnis zurück (2:0 für `winner`).
+ */
+export function checkWalkover(d: TournamentData, matchId: string, winner: 'A' | 'B'): ScoredWalkover {
+  assertFormat(d);
+  const m = findMatch(d, matchId);
+  if (!m.stageId) throw new Error('Kampflos werten geht nur bei Turnieren mit Gruppen oder Endrunde.');
+  if (isKnockoutLike(d, m)) throw new Error('In der Endrunde kommt ein Team über „Rückzug“ kampflos weiter.');
+  if (!m.teamAId || !m.teamBId) throw new Error('Die Teams für dieses Spiel stehen noch nicht fest.');
+  if (m.status !== 'scheduled' && m.status !== 'live') throw new Error('Das Spiel ist schon vorbei. Korrigiere es zuerst.');
+  if (winner !== 'A' && winner !== 'B') throw new Error('Bitte angeben, welches Team kampflos gewinnt.');
+  const out = [m.teamAId, m.teamBId].find((id) => d.teams.find((t) => t.id === id)?.status !== 'active');
+  if (out) throw new Error(`${d.teams.find((t) => t.id === out)?.name ?? 'Ein Team'} ist abgemeldet. Dessen Spiele zählen ohnehin nicht.`);
+  return scoredWalkover(winner);
 }
 
 function drawDeciderOf(d: TournamentData, m: Match): string | undefined {
@@ -335,6 +366,34 @@ export function moveMatchIn(d: TournamentData, matchId: string, move: MatchMove)
   return { before, after: [layoutSnap(m)] };
 }
 
+/**
+ * Mehrere noch nicht angepfiffene Spiele auf einmal neu setzen (Plan straffen, Dreiergruppe spielt länger).
+ * Anders als beim Tauschen von Hand bleibt `manual` unverändert, damit ein späteres Straffen sie wieder bewegen darf.
+ */
+export function placeMatchesIn(d: TournamentData, placements: readonly MatchPlacement[]): { before: LayoutSnap[]; after: LayoutSnap[] } {
+  assertFormat(d);
+  if (placements.length === 0) throw new Error('Es gibt nichts zu ändern.');
+  const touched: Match[] = [];
+  const before: LayoutSnap[] = [];
+  for (const p of placements) {
+    const m = openMatch(d, p.matchId);
+    if (!m.stageId) throw new Error('Das geht nur bei Spielen mit Gruppen oder Endrunde.');
+    if (!d.fields.some((f) => f.id === p.fieldId)) throw new Error('Dieses Feld gibt es nicht.');
+    if (Number.isNaN(Date.parse(p.startISO))) throw new Error('Ungültige Uhrzeit.');
+    if (p.durationMinutes !== undefined && (!Number.isInteger(p.durationMinutes) || p.durationMinutes < 1 || p.durationMinutes > 240)) {
+      throw new Error('Die Spielzeit muss zwischen 1 und 240 Minuten liegen.');
+    }
+    if (touched.includes(m)) continue;
+    before.push(layoutSnap(m));
+    m.fieldId = p.fieldId;
+    m.startISO = new Date(p.startISO).toISOString();
+    if (p.waveIndex !== undefined) m.waveIndex = p.waveIndex;
+    if (p.durationMinutes !== undefined) m.durationMinutes = p.durationMinutes;
+    touched.push(m);
+  }
+  return { before, after: touched.map(layoutSnap) };
+}
+
 /** Bestätigte Endrunden-Füllung eintragen: Team auf die Seite setzen, Platzhalter bleibt zur Anzeige. */
 export function fillSlotsIn(d: TournamentData, fills: SlotFill[]): { before: LayoutSnap[]; after: LayoutSnap[] } {
   if (fills.length === 0) throw new Error('Nichts zum Eintragen.');
@@ -424,4 +483,121 @@ export function withdrawQualifiedIn(
     }
   }
   return { before, after: finals.map(layoutSnap), matchIds: finals.map((m) => m.id) };
+}
+
+// ---------- Turnier umstellen (src/domain/format/reshape.ts) ----------
+
+/** Stand, den „Turnier umstellen“ setzt bzw. „Rückgängig“ wiederherstellt. */
+export interface ReshapeState {
+  format: TournamentFormat;
+  /** Einteilung der Vorrunde; `null` = bleibt, wie sie ist. */
+  draw: Omit<GroupDraw, 'updatedAt'> | null;
+  teamStatus: { id: string; status: TeamStatus }[];
+  /** Alle noch nicht angepfiffenen Baukasten-Spiele danach (mit ID, wenn sie bleiben). */
+  plan: PlannedStageMatch[];
+}
+
+/** Noch nicht angepfiffene Baukasten-Spiele in der Form, die `applyStagePlan` speichert. */
+export function openStagePlan(d: TournamentData): PlannedStageMatch[] {
+  return d.matches
+    .filter((m) => m.stageId && isOpen(m))
+    .map((m) => {
+      const p: PlannedStageMatch = {
+        id: m.id,
+        stageId: m.stageId!,
+        groupIndex: m.groupIndex,
+        matchKey: m.matchKey,
+        teamAId: m.teamAId || undefined,
+        teamBId: m.teamBId || undefined,
+        slotA: m.slotA,
+        slotB: m.slotB,
+        penaltyOnly: m.penaltyOnly,
+        fieldId: m.fieldId,
+        startISO: m.startISO,
+        waveIndex: m.waveIndex,
+        durationMinutes: m.durationMinutes,
+        manual: m.manual,
+      };
+      for (const k of Object.keys(p) as (keyof PlannedStageMatch)[]) if (p[k] === undefined) delete p[k];
+      return p;
+    });
+}
+
+/** Jetziger Stand für die Teams `teamIds` (die sich ändern). */
+export function reshapeSnapshot(d: TournamentData, teamIds: readonly string[]): ReshapeState {
+  assertFormat(d);
+  const first = d.tournament.format!.stages[0]!;
+  const draw = d.groupDraws?.find((g) => g.stageId === first.id);
+  return {
+    format: structuredClone(d.tournament.format!),
+    draw: draw ? { stageId: draw.stageId, groups: draw.groups.map((g) => [...g]), mode: draw.mode } : null,
+    teamStatus: teamIds.flatMap((id) => {
+      const t = d.teams.find((x) => x.id === id);
+      return t ? [{ id, status: t.status }] : [];
+    }),
+    plan: openStagePlan(d),
+  };
+}
+
+/**
+ * Neuen Stand setzen: Teamstatus, Format, Einteilung der Vorrunde und alle offenen Spiele. Angepfiffene und
+ * beendete Spiele bleiben („gespielt ist gespielt“). Gibt die IDs der offenen Spiele danach zurück.
+ */
+export function applyReshapeState(d: TournamentData, s: ReshapeState, newId: () => string, nowISO: string): string[] {
+  assertFormat(d);
+  const old = d.tournament.format!;
+  const first = s.format.stages[0];
+  if (!first || first.id !== old.stages[0]?.id) throw new Error('Die Vorrunde lässt sich beim Umstellen nicht austauschen.');
+  for (const st of d.matches) {
+    if (st.stageId && !isOpen(st) && !s.format.stages.some((x) => x.id === st.stageId)) {
+      throw new Error('In einem Abschnitt, der wegfallen würde, wurde schon gespielt.');
+    }
+  }
+  for (const { id, status } of s.teamStatus) {
+    const t = d.teams.find((x) => x.id === id);
+    if (!t) throw new Error('Unbekanntes Team.');
+    if (t.status !== status) {
+      t.status = status;
+      t.withdrawnAt = status === 'active' ? undefined : nowISO;
+    }
+  }
+  const drawn = (s.draw?.groups ?? d.groupDraws?.find((g) => g.stageId === first.id)?.groups ?? []).flat().length;
+  const issue = validateFormat(s.format, drawn)[0];
+  if (issue) throw new Error(issue.message);
+  d.tournament.format = structuredClone(s.format);
+  if (s.draw) applyGroupDraw(d, checkGroupDraw(d, s.draw), nowISO);
+  return applyStagePlan(d, s.plan, newId, nowISO);
+}
+
+/** Für den Verlauf (Firestore kennt keine Listen in Listen: Gruppen als `{ teamIds }`). */
+export function reshapeAuditRecord(s: ReshapeState): Record<string, unknown> {
+  return {
+    format: s.format,
+    draw: s.draw ? { stageId: s.draw.stageId, groups: s.draw.groups.map((teamIds) => ({ teamIds })), mode: s.draw.mode } : null,
+    teams: s.teamStatus,
+    matches: s.plan,
+  };
+}
+
+/** Gegenstück zu `reshapeAuditRecord`; null, wenn der Eintrag unvollständig ist. */
+export function reshapeStateFromAudit(v: unknown): ReshapeState | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const format = r.format as TournamentFormat | undefined;
+  if (!format || !Array.isArray(format.stages) || !Array.isArray(r.teams) || !Array.isArray(r.matches)) return null;
+  const draw = r.draw && typeof r.draw === 'object' ? (r.draw as Record<string, unknown>) : null;
+  return {
+    format,
+    draw: draw
+      ? {
+          stageId: String(draw.stageId),
+          groups: (Array.isArray(draw.groups) ? draw.groups : []).map((g: unknown) =>
+            Array.isArray((g as { teamIds?: unknown }).teamIds) ? [...((g as { teamIds: string[] }).teamIds)] : [],
+          ),
+          mode: (draw.mode as GroupDraw['mode']) ?? 'manual',
+        }
+      : null,
+    teamStatus: r.teams as ReshapeState['teamStatus'],
+    plan: r.matches as PlannedStageMatch[],
+  };
 }

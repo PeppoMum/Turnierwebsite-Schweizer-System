@@ -430,6 +430,11 @@ export function finalPlacements(input: ResolveInput): PlacementResult {
         place(won.teamId, stage, pm.place - offset, pm.place - offset);
         place(lost.teamId, stage, pm.place - offset + 1, pm.place - offset + 1);
       }
+      // Platz ohne Spiel: steht fest, sobald das Team feststeht.
+      for (const bye of stage.byes ?? []) {
+        const team = r.slot(bye.slot);
+        if (team.teamId && !team.provisional) place(team.teamId, stage, bye.place - offset, (bye.placeTo ?? bye.place) - offset);
+      }
     } else {
       const st = input.standings[stage.id];
       if (!st || !st.groupComplete.every(Boolean)) continue;

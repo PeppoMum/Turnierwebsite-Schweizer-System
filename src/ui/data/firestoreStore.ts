@@ -3,9 +3,9 @@
 // Objekte liefern. Schreiben: über die Datenschicht in src/data (Transaktionen, Revision, Audit,
 // öffentliche Projektion). Gäste lesen ausschließlich die öffentliche Projektion.
 import type { Firestore } from 'firebase/firestore';
-import { doc, getDoc, writeBatch } from 'firebase/firestore';
+import { deleteField, doc, getDoc, writeBatch } from 'firebase/firestore';
 import type { Bye, Field, Match, Round, Sponsor, Team, TieBreaker } from '../../domain';
-import { createWaveSchedule, zonedLocalToISO } from '../../domain/schedule';
+import { createWaveSchedule, zonedLocalToISO, type MatchPlacement } from '../../domain/schedule';
 import {
   DataError,
   closeRound,
@@ -16,10 +16,12 @@ import {
   loadAudit,
   markMatchNotPlayed,
   newMatchId,
+  reshapeTournamentData,
   publishStandings,
   paths,
   publishRound as publishRoundData,
   recordResult,
+  recordWalkover as recordWalkoverData,
   reopenMatchForCorrection,
   reopenRound,
   resetMatchToScheduled,
@@ -93,13 +95,19 @@ import type { TournamentService } from './service';
 import {
   applyLayoutSnap,
   applyStagePlan,
+  applyReshapeState,
+  reshapeAuditRecord,
+  reshapeSnapshot,
+  type ReshapeState,
   assertFormat,
   assertPlayable,
   checkFinishWithoutDecider,
   checkGroupDraw,
   checkKnockoutResult,
+  checkWalkover,
   fillSlotsIn,
   moveMatchIn,
+  placeMatchesIn,
   scoreEditDecision,
   swapMatchesIn,
   swapSidesIn,
@@ -118,6 +126,7 @@ import type {
   PublicTournamentView,
   RefereeReport,
   Refereeing,
+  ReshapeChange,
   SlotFill,
   TeamEdit,
   TournamentData,
@@ -592,6 +601,7 @@ export class FirestoreTournamentStore implements TournamentService {
           fieldId: m.fieldId ?? undefined,
           waveIndex: m.waveIndex ?? undefined,
           startISO: m.startISO ?? undefined,
+          ...(typeof m.durationMinutes === 'number' ? { durationMinutes: m.durationMinutes } : {}),
           status: m.status,
           ...(withScore ? { goalsA: r.goalsA!, goalsB: r.goalsB! } : {}),
           ...(showScores && m.status === 'live' && !withScore ? { goalsA: 0, goalsB: 0 } : {}),
@@ -1251,6 +1261,12 @@ export class FirestoreTournamentStore implements TournamentService {
       case 'group-draw':
         await this.saveGroupDraw(tid, plan.draw, entry.id);
         return;
+      case 'reshape':
+        await this.commitReshape(tid, plan.title, plan.state, entry.id);
+        return;
+      case 'team-present':
+        await this.writeTeamPresent(tid, plan.teamId, plan.present, entry.id);
+        return;
     }
   }
 
@@ -1320,6 +1336,13 @@ export class FirestoreTournamentStore implements TournamentService {
     await this.markRunning(tid);
   }
 
+  async recordWalkover(tid: string, matchId: string, winner: 'A' | 'B'): Promise<void> {
+    const r = checkWalkover(this.formatData(tid), matchId, winner);
+    const m = this.match(tid, matchId);
+    await recordWalkoverData(this.db, this.actor(), tid, matchId, r, m.revision, this.standingsAfter(tid));
+    await this.markRunning(tid);
+  }
+
   swapMatches(tid: string, matchIdA: string, matchIdB: string): Promise<void> {
     return this.changeMatches(tid, 'match.swap', (d) => swapMatchesIn(d, matchIdA, matchIdB));
   }
@@ -1353,6 +1376,31 @@ export class FirestoreTournamentStore implements TournamentService {
     if (before.teams.find((t) => t.id === teamId)?.status === 'active') {
       await withdrawTeamData(this.db, this.actor(), tid, teamId, {});
     }
+  }
+
+  setTeamPresent(tid: string, teamId: string, present: boolean): Promise<void> {
+    return this.writeTeamPresent(tid, teamId, present);
+  }
+
+  private async writeTeamPresent(tid: string, teamId: string, present: boolean, undoOf?: string): Promise<void> {
+    const d = this.data(tid);
+    const team = d.teams.find((t) => t.id === teamId);
+    if (!team) throw new DataError('invalid_input', 'Mannschaft nicht gefunden.');
+    if (Boolean(team.checkedInAt) === present) return;
+    const batch = writeBatch(this.db);
+    batch.update(paths.team(this.db, tid, teamId), { checkedInAt: present ? new Date().toISOString() : deleteField() });
+    writeAudit(this.db, batch, tid, this.actor(), {
+      action: 'team.present',
+      targetType: 'team',
+      targetId: teamId,
+      before: { present: !present },
+      after: { teamId, present, ...undoField({ undoOf }) },
+    });
+    await batch.commit();
+  }
+
+  placeMatches(tid: string, reason: 'compact' | 'longer', placements: MatchPlacement[]): Promise<void> {
+    return this.changeMatches(tid, `schedule.${reason}`, (d) => placeMatchesIn(d, placements));
   }
 
   async publishTournament(tid: string): Promise<void> {
@@ -1419,6 +1467,46 @@ export class FirestoreTournamentStore implements TournamentService {
     await this.markRunning(tid);
   }
 
+
+  async reshapeTournament(tid: string, change: ReshapeChange): Promise<void> {
+    const d = this.formatData(tid);
+    const missing = change.missingTeamIds.filter((id) => d.teams.find((t) => t.id === id)?.status === 'active');
+    const first = d.tournament.format!.stages[0]!;
+    const oldDraw = d.groupDraws?.find((g) => g.stageId === first.id);
+    await this.commitReshape(tid, change.title, {
+      format: change.format,
+      draw: change.groups ? { stageId: first.id, groups: change.groups, mode: oldDraw?.mode ?? 'manual' } : null,
+      teamStatus: missing.map((id) => ({ id, status: 'no_show' })),
+      plan: change.plan,
+    });
+  }
+
+  /** Wie im mockStore: auf einer Kopie prüfen und anwenden, dann alles in einer Transaktion speichern. */
+  private async commitReshape(tid: string, title: string, target: ReshapeState, undoOf?: string): Promise<void> {
+    const d = this.formatData(tid);
+    const before = reshapeSnapshot(d, target.teamStatus.map((t) => t.id));
+    const copy: TournamentData = structuredClone(d);
+    const ids = applyReshapeState(copy, target, () => newMatchId(this.db, tid), new Date().toISOString());
+    await reshapeTournamentData(
+      this.db,
+      this.actor(),
+      tid,
+      {
+        expectedRevision: d.tournament.revision,
+        format: target.format,
+        ...(target.draw ? { draw: { stageId: target.draw.stageId, groups: target.draw.groups, mode: target.draw.mode } } : {}),
+        teams: target.teamStatus.filter((t) => d.teams.find((x) => x.id === t.id)?.status !== t.status),
+        changes: diffMatches(d.matches, copy.matches),
+      },
+      {
+        action: 'tournament.reshape',
+        before: reshapeAuditRecord(before),
+        after: { title, ...reshapeAuditRecord({ ...target, plan: [] }), matches: null, matchIds: ids },
+        undoOf,
+      },
+    );
+    await this.syncPublicIfShown(tid, d.tournament.status);
+  }
 
   /** Alle Abos beenden (z. B. beim Abmelden oder in Tests). */
   dispose(): void {

@@ -98,6 +98,8 @@ export interface KnockoutStage extends StageBase {
   drawDecider: DrawDecider;
   /** Spiele, die nur aus Neunmeterschießen bestehen, z. B. `['P3']`. */
   penaltyOnlyMatchKeys?: string[];
+  /** Eigene Spieldauer nur für das Finale; fehlt = wie der Abschnitt. */
+  finalMatchMinutes?: number;
 }
 
 /** Jeder gegen jeden mit wenigen Teams als Endrunde. */

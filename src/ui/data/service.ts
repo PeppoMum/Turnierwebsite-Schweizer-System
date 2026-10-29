@@ -4,6 +4,7 @@
 // die Oberfläche zeigt sie an.
 import type { MatchStatus, NotPlayedReason, Visibility } from '../../domain';
 import type { MatchPlacement } from '../../domain/schedule';
+import type { RoundSlot } from './roundEdit';
 
 type MatchSideKey = 'A' | 'B';
 import type {
@@ -48,7 +49,11 @@ export interface TournamentService {
   reopenMatch(tid: string, matchId: string): Promise<void>;
 
   previewNextRound(tid: string, seed?: number): PairingPreview;
-  publishRound(tid: string, preview: PairingPreview, startISO: string): Promise<void>;
+  /**
+   * Runde freigeben. Ohne `slots` werden Felder und Zeiten automatisch geplant; mit `slots` (je Paarung,
+   * gleiche Reihenfolge) gelten die in der Vorschau von Hand gesetzten.
+   */
+  publishRound(tid: string, preview: PairingPreview, startISO: string, slots?: RoundSlot[]): Promise<void>;
   closeCurrentRound(tid: string): Promise<void>;
   shiftFutureMatches(tid: string, deltaMinutes: number): Promise<number>;
 

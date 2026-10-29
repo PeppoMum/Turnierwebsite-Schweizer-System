@@ -5,7 +5,7 @@
 import type { Firestore } from 'firebase/firestore';
 import { deleteField, doc, getDoc, writeBatch } from 'firebase/firestore';
 import type { Bye, Field, Match, Round, Sponsor, Team, TieBreaker } from '../../domain';
-import { createWaveSchedule, zonedLocalToISO, type MatchPlacement } from '../../domain/schedule';
+import { zonedLocalToISO, type MatchPlacement } from '../../domain/schedule';
 import {
   DataError,
   closeRound,
@@ -91,6 +91,7 @@ import { assertDetails, checkedTeamName, movedStartISO, nextTeamId } from './det
 import { undoCheck } from './undo';
 import { acceptStep, checkedRefereeName, checkedReport } from './referees';
 import { computeStandings, previewNextRound } from './logic';
+import { planRound, type RoundSlot } from './roundEdit';
 import type { TournamentService } from './service';
 import {
   applyLayoutSnap,
@@ -959,57 +960,36 @@ export class FirestoreTournamentStore implements TournamentService {
 
   previewNextRound = (tid: string, seed?: number): PairingPreview => previewNextRound(this.data(tid), seed);
 
-  async publishRound(tid: string, preview: PairingPreview, startISO: string): Promise<void> {
-    await this.publishPreview(tid, this.data(tid), preview, startISO);
+  async publishRound(tid: string, preview: PairingPreview, startISO: string, slots?: RoundSlot[]): Promise<void> {
+    await this.publishPreview(tid, this.data(tid), preview, startISO, slots);
   }
 
-  /** Felder/Wellen planen, Vorschau speichern und freigeben (wie mockStore.publishRound). */
+  /** Felder/Wellen planen (oder von Hand gesetzte übernehmen), Vorschau speichern und freigeben. */
   private async publishPreview(
     tid: string,
     d: TournamentData & { resultsRevision: number },
     preview: PairingPreview,
     startISO: string,
+    manual?: RoundSlot[],
   ): Promise<void> {
     const actor = this.actor();
     const s = d.tournament.schedule;
-    const teamLastEndISO: Record<string, string> = {};
-    for (const m of d.matches) {
-      if (!m.startISO || m.status === 'not_played' || m.status === 'cancelled') continue;
-      const end = new Date(new Date(m.startISO).getTime() + m.durationMinutes * 60000).toISOString();
-      for (const id of [m.teamAId, m.teamBId]) if (!teamLastEndISO[id] || teamLastEndISO[id]! < end) teamLastEndISO[id] = end;
+    let planned: RoundSlot[];
+    try {
+      planned = manual ?? planRound(d, preview, startISO);
+    } catch (e) {
+      throw new DataError('invalid_state', e instanceof Error ? e.message : String(e));
     }
-    const keys = preview.pairs.map((_, i) => `p${i + 1}`);
-    const plan = createWaveSchedule(
-      [
-        {
-          roundNumber: preview.roundNumber,
-          startISO,
-          matches: preview.pairs.map((p, i) => ({ id: keys[i]!, teamAId: p.teamAId, teamBId: p.teamBId })),
-        },
-      ],
-      d.fields,
-      {
-        tournamentStartISO: s.tournamentStartISO,
-        matchMinutes: s.matchMinutes,
-        turnoverMinutes: s.turnoverMinutes,
-        roundBreakMinutes: s.roundBreakMinutes,
-        optionalHardRestMinutes: s.optionalHardRestMinutes,
-        evenRest: s.evenRest,
-        allocation: s.allocation,
-      },
-      { teamLastEndISO, teamNames: new Map(d.teams.map((t) => [t.id, t.name])) },
-    );
-    if (plan.problems.length > 0) throw new DataError('invalid_state', plan.problems.join(' '));
-    const slot = new Map(plan.matches.map((m) => [m.matchId, m]));
+    if (planned.length !== preview.pairs.length) throw new DataError('invalid_input', 'Spielplan und Paarungen passen nicht zusammen.');
     const { roundId } = await saveRoundPreview(this.db, actor, tid, {
       number: preview.roundNumber,
       mode: preview.mode,
-      plannedStartISO: plan.rounds[0]?.startISO ?? startISO,
+      plannedStartISO: planned.map((x) => x.startISO).sort()[0] ?? startISO,
       generatedFromRevision: d.resultsRevision,
       frozenPairings: true,
       pairingDiagnostics: preview.diagnostics,
       matches: preview.pairs.map((p, i) => {
-        const sm = slot.get(keys[i]!);
+        const sm = planned[i];
         return {
           teamAId: p.teamAId,
           teamBId: p.teamBId,

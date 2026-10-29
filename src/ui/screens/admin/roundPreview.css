@@ -1,0 +1,74 @@
+/* Rundenvorschau (Schweizer System): Teams zum Tauschen antippen, Feld und Uhrzeit je Spiel. */
+.pv-row {
+  flex-wrap: wrap;
+}
+
+.pv-teams {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.pv-team {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  padding: 3px 6px;
+  margin: 0 -6px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.pv-team:hover {
+  border-color: var(--ln);
+}
+
+.pv-team.pick {
+  border-color: var(--ac);
+  background: var(--acs);
+}
+
+.pv-team.target {
+  border-color: var(--ac);
+}
+
+.pv-slot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.pv-slot .select {
+  width: auto;
+  min-width: 0;
+  max-width: 140px;
+}
+
+.pv-slot .input {
+  width: 110px;
+}
+
+.pv-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.pv-list {
+  margin: 4px 0;
+  padding-left: 18px;
+}

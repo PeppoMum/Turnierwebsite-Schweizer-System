@@ -1,8 +1,9 @@
 // Beispiel-Datenhaltung im Browser (localStorage), bis Firestore angebunden ist.
 import type { Match, Round, Team } from '../../domain';
 import { createFixtures } from './fixtures';
-import { createWaveSchedule, zonedLocalToISO, type MatchPlacement } from '../../domain/schedule';
+import { zonedLocalToISO, type MatchPlacement } from '../../domain/schedule';
 import { previewNextRound, toPublicView } from './logic';
+import { planRound, type RoundSlot } from './roundEdit';
 import type { TournamentService } from './service';
 import { assertDetails, checkedTeamName, detailsOf, movedStartISO, nextTeamId } from './details';
 import { undoCheck } from './undo';
@@ -451,40 +452,23 @@ export class MockTournamentStore implements TournamentService {
     return previewNextRound(d, seed);
   };
 
-  async publishRound(tid: string, preview: ReturnType<MockTournamentStore['previewNextRound']>, startISO: string): Promise<void> {
+  async publishRound(
+    tid: string,
+    preview: ReturnType<MockTournamentStore['previewNextRound']>,
+    startISO: string,
+    slots?: RoundSlot[],
+  ): Promise<void> {
     this.mutate(tid, (d) => {
       const roundId = `${tid}-r${preview.roundNumber}`;
       const now = nowISO();
       const s = d.tournament.schedule;
-      // Letztes Spielende je Team, damit die Planung Pausen über die Rundengrenze hinweg berücksichtigt.
-      const teamLastEndISO: Record<string, string> = {};
-      for (const m of d.matches) {
-        if (!m.startISO || m.status === 'not_played' || m.status === 'cancelled') continue;
-        const end = new Date(new Date(m.startISO).getTime() + m.durationMinutes * 60000).toISOString();
-        for (const id of [m.teamAId, m.teamBId]) if (!teamLastEndISO[id] || teamLastEndISO[id]! < end) teamLastEndISO[id] = end;
-      }
-      const plan = createWaveSchedule(
-        [{ roundNumber: preview.roundNumber, startISO, matches: preview.pairs.map((p, i) => ({ id: `${roundId}-m${i + 1}`, teamAId: p.teamAId, teamBId: p.teamBId })) }],
-        d.fields,
-        {
-          tournamentStartISO: s.tournamentStartISO,
-          matchMinutes: s.matchMinutes,
-          turnoverMinutes: s.turnoverMinutes,
-          roundBreakMinutes: s.roundBreakMinutes,
-          optionalHardRestMinutes: s.optionalHardRestMinutes,
-          evenRest: s.evenRest,
-          allocation: s.allocation,
-        },
-        { teamLastEndISO, teamNames: new Map(d.teams.map((t) => [t.id, t.name])) },
-      );
-      if (plan.problems.length > 0) throw new Error(plan.problems.join(' '));
-      const slot = new Map(plan.matches.map((m) => [m.matchId, m]));
+      const planned = slots ?? planRound(d, preview, startISO);
       const round: Round = {
         id: roundId,
         number: preview.roundNumber,
         status: 'published',
         mode: preview.mode,
-        plannedStartISO: plan.rounds[0]?.startISO ?? startISO,
+        plannedStartISO: planned.map((x) => x.startISO).sort()[0] ?? startISO,
         generatedFromRevision: d.tournament.revision,
         publishedAt: now,
         frozenPairings: true,
@@ -493,7 +477,7 @@ export class MockTournamentStore implements TournamentService {
       d.rounds.push(round);
       preview.pairs.forEach((p, i) => {
         const id = `${roundId}-m${i + 1}`;
-        const sm = slot.get(id);
+        const sm = planned[i];
         d.matches.push({
           id,
           roundId,

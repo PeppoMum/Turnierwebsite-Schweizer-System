@@ -21,6 +21,11 @@ const constraints = (over: Partial<DayPlanConstraints> = {}): DayPlanConstraints
 });
 
 const template = (id: string): TournamentFormat => FORMAT_TEMPLATES.find((t) => t.id === id)!.build();
+/** Vorlage, deren Vorrunde jede Gruppe auf ein festes Feld legt (Vorlagen haben das standardmäßig aus). */
+const fixedFields = (format: TournamentFormat): TournamentFormat => ({
+  ...format,
+  stages: format.stages.map((s) => (s.kind === 'groups' && !s.entry ? { ...s, fixedFields: true } : s)),
+});
 
 /** Plan zurück in bearbeitbare Spiele, um ihn mit der Prüfung der Handänderungen zu prüfen. */
 function editable(plan: DayPlan, matches: readonly StageMatchToPlan[]): EditableMatch[] {
@@ -92,7 +97,7 @@ describe('Spielgerüst und Vorschau beim Anlegen', () => {
 
 describe('Ganzen Turniertag planen', () => {
   it('16 Teams, 4 Felder: Gruppen auf festen Feldern, Pause vor der Endrunde, K.-o. in Reihenfolge', () => {
-    const format = template('t16');
+    const format = fixedFields(template('t16'));
     const { matches, plan } = planOf(format, 16, 4);
     expect(plan.problems).toEqual([]);
     expect(plan.matches).toHaveLength(matches.length);
@@ -136,7 +141,7 @@ describe('Ganzen Turniertag planen', () => {
   });
 
   it('zu wenig Felder für feste Gruppenfelder: Hinweis, trotzdem alles geplant', () => {
-    const { matches, plan } = planOf(template('t16'), 16, 3);
+    const { matches, plan } = planOf(fixedFields(template('t16')), 16, 3);
     expect(plan.warnings.join()).toMatch(/feste Gruppenfelder fehlen Felder/);
     expect(plan.problems).toEqual([]);
     expect(plan.matches).toHaveLength(matches.length);

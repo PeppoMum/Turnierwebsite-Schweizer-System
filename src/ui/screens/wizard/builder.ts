@@ -127,7 +127,7 @@ export function fromFormat(format: TournamentFormat, templateId: string | null =
     groupCount: group ? Math.max(1, group.groupCount) : 4,
     groupSizes: group?.groupSizes ? [...group.groupSizes] : null,
     doubleRoundRobin: group?.doubleRoundRobin ?? false,
-    fixedFields: group?.fixedFields ?? true,
+    fixedFields: group?.fixedFields ?? false,
     tieBreakVariant: format.tieBreakVariant,
     intermediate: mid
       ? {

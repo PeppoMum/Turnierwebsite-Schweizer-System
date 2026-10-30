@@ -207,7 +207,8 @@ export function StepPreviewFormat({ draft, update, builder: b, preview, groups }
       <div className="grid two">
         <Notice tone="info" title="Erst nach dem Veröffentlichen sichtbar">
           Zuschauer und gegnerische Trainer sehen Gruppen und Spielplan erst, wenn du auf „Turnier veröffentlichen“ drückst. Als Entwurf gespeichert, bleibt
-          alles nur für dich sichtbar.
+          alles nur für dich sichtbar. Spiele verschieben, Felder oder Teams tauschen kannst du danach im Spielplan des Turniers, auch
+          schon vor dem Veröffentlichen.
         </Notice>
         <div className="card stack" style={{ background: 'var(--bg)' }}>
           <h3 className="card-title">Link und QR-Code</h3>

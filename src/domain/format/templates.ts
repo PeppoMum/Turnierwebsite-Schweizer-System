@@ -22,7 +22,7 @@ function groups(groupCount: number): GroupStage {
     groupCount,
     doubleRoundRobin: false,
     draw: 'random',
-    fixedFields: true,
+    fixedFields: false,
   };
 }
 
